@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Teoría de Colas</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Teoría de Colas</h1>
+
+      <br />
+      <p><strong>Parámetros de Simulación</strong></p>
+      <div class="parameters">
+        <div class="modifiers">
+          <label><input type="checkbox" onchange="toggleInput(this)" id="descanso" /> Descanso <input type="number" disabled id="tiempoDescanso" placeholder="Tiempo de descanso (s)" value="10" /></label>
+          <label><input type="checkbox" onchange="toggleInput(this)" id="abandono" /> Abandono <input type="number" disabled id="tiempoAbandono" placeholder="Tiempo de abandono (s)" value="10" /> </label>
+          <label><input type="checkbox" onchange="toggleInput(this)" id="prioridad" /> Prioridad <input type="number" disabled id="tiempoPrioridad" placeholder="Tiempo de prioridad (s)" value="10" /></label>
+          <label><input type="checkbox" onchange="toggleInput(this)" id="seguridad" /> Seguridad <input type="number" disabled id="tiempoSeguridad" placeholder="Tiempo de seguridad (s)" value="10" /></label>
+        </div>
+         <br />
+        <h5>Tiempo de Llegada (s)</h5>
+        <input
+          type="number"
+          id="tiempoLlegada"
+          placeholder="Tiempo de llegada (s)"
+          value="35"
+        />
+ <br />
+        <h5>Tiempo de Servicio (s)</h5>
+        <input
+          type="number"
+          id="tiempoServicio"
+          placeholder="Tiempo de servicio (s)"
+          value="40"
+        />
+
+        <br />
+        <h5>Tiempo de Simulación (s)</h5>
+        <input
+          type="number"
+          id="tiempoSimulacion"
+          placeholder="Tiempo de simulación (s)"
+          value="500"
+        />
+
+        <br />
+        <button
+          onclick="
+            iniciarSimulacion(document.getElementById('tiempoSimulacion').value)
+          "
+        >
+          Iniciar Simulación
+        </button>
+      </div>
+
+    </div>
+      <div id="consoleBox"></div>
+       <script src="simulacion.js"></script>
+
+    
+
+      <script>
+        const consoleBox = document.getElementById("consoleBox");
+
+        // Guardamos el console.log original
+        const originalLog = console.log;
+
+        console.log = function (...args) {
+          // Llamamos al console.log real
+          originalLog.apply(console, args);
+
+          // Mostramos en el HTML
+          const message = args.join(" ");
+          const line = document.createElement("div");
+          line.textContent = message;
+
+          consoleBox.appendChild(line);
+
+          // Auto scroll al final (opcional)
+          consoleBox.scrollTop = consoleBox.scrollHeight;
+        };
+      </script>
+  </body>
+</html>
