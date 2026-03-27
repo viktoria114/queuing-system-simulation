@@ -136,11 +136,18 @@ tS = params.tS;
     imprimirEncabezado();
 
     function paso() {
-        if (tiempoActual >= tiempoTotal) {
+         const proximoEvento = Math.min(
+        proximoEventoLlegada,
+        proximoEventoFinServicio || Infinity
+    );
+
+        if (proximoEvento > tiempoTotal) {
             console.log("\n═══════════════════════════════════════");
             console.log("FIN DE SIMULACIÓN");
             console.log("═══════════════════════════════════════");
             console.log(`Clientes atendidos: ${ClientesAtendidos}`);
+            console.log("EVENTO FINAL:", tiempoActual);
+            console.log("Último cliente atendido en:", tiempoActual);
             return;
         }
 
