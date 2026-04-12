@@ -1,90 +1,285 @@
- * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #FFB6E1 0%, #DDA0DD 50%, #FFD1DC 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        
-        .container {
-            background-color: #FFF8E7;
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            padding: 40px;
-            text-align: center;
-            width: 600px;
-        }
-        
-        h1 {
-            color: #DDA0DD;
-            font-size: 2.5em;
-            margin-bottom: 20px;
-        }
-          h5 {
-            color: #DDA0DD;
- 
-        }
-        
-        p {
-            color: #DDA0DD;
-            font-size: 1.1em;
-            line-height: 1.6;
-        }
-        button {
-            background: linear-gradient(135deg, #FFB6E1 0%, #DDA0DD 100%);
-            color: white;
-            border: none;
-            padding: 12px 30px;
-            font-size: 1.1em;
-            border-radius: 25px;
-            cursor: pointer;
-            font-weight: bold;
-            box-shadow: 0 4px 15px rgba(221, 160, 221, 0.4);
-            transition: all 0.3s ease;
-            margin-top: 20px;
-        }
-
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(221, 160, 221, 0.6);
-        }
-
-        button:active {
-            transform: translateY(0);
-            box-shadow: 0 2px 10px rgba(221, 160, 221, 0.4);
-        }
-
-         #consoleBox {
-            width: 800px;
-      height: 400px;
-      border: 1px solid #ccc;
-      margin: 20px;
-      padding: 10px;
-      overflow-y: auto; /* 👈 scroll vertical */
-      background: #111;
-      color: rgb(253, 234, 255);
-      font-family: monospace;
-      border-radius: 16px;
-       text-align: center;
-    }
-
-    .modifiers label {
-  display: flex;
-   justify-content: center;
-  gap: 10px;
-  margin-bottom: 5px;
+/* ─── RESET ─────────────────────────────────────────────────── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
+/* ─── BODY — tu gradiente rosa ──────────────────────────────── */
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #FFB6E1 0%, #DDA0DD 50%, #FFD1DC 100%);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+/* ─── LAYOUT DOS COLUMNAS ───────────────────────────────────── */
+.layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 1300px;
+}
+
+/* ─── CONTAINER (columna izquierda) — tu estilo crema ───────── */
+.container {
+  background-color: #FFF8E7;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  padding: 40px;
+  text-align: center;
+  width: 420px;
+  flex-shrink: 0;
+}
+
+h1 {
+  color: #DDA0DD;
+  font-size: 2.5em;
+  margin-bottom: 20px;
+}
+
+h5 {
+  color: #DDA0DD;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+p {
+  color: #DDA0DD;
+  font-size: 1.1em;
+  line-height: 1.6;
+}
+
+/* ─── INPUTS BASE ───────────────────────────────────────────── */
 input[type="number"] {
-  width: 100px;
-    margin-top: 4px;
-    margin-bottom: 4px;
+  width: 100%;
+  margin-top: 4px;
+  margin-bottom: 4px;
+  padding: 6px 10px;
+  border: 1px solid #DDA0DD;
+  border-radius: 8px;
+  font-size: 0.95em;
+  background: #fff;
+  color: #555;
+}
+
+/* ─── MODIFICADORES ─────────────────────────────────────────── */
+.modifiers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mod-item {
+  background: #fff0f8;
+  border: 1px solid #f0c8e8;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.mod-item:has(.modificador-check:checked) {
+  border-color: #DDA0DD;
+}
+
+.mod-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mod-header input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #DDA0DD;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mod-header span:nth-child(2) {
+  flex: 1;
+  text-align: left;
+  color: #9b6fa0;
+  font-size: 0.95em;
+}
+
+/* Badge ON/OFF */
+.mod-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #bbb;
+  background: #f0e8f0;
+  border: 1px solid #ddd;
+  padding: 2px 7px;
+  border-radius: 20px;
+  transition: all 0.2s;
+}
+
+.mod-badge.on {
+  color: #DDA0DD;
+  border-color: #DDA0DD;
+  background: #fde8ff;
+}
+
+/* Panel del parámetro: animación de apertura */
+.mod-param {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease, padding 0.25s;
+}
+
+.mod-param.activo {
+  max-height: 60px;
+  padding: 0 14px 10px;
+}
+
+.mod-param input[type="number"] {
+  width: 100%;
+  margin: 0;
+  border-color: #e8c8e8;
+}
+
+/* ─── SLIDER ────────────────────────────────────────────────── */
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.slider-label {
+  font-size: 11px;
+  color: #bba0cc;
+  white-space: nowrap;
+}
+
+input[type="range"] {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #f0c8e8;
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #DDA0DD;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(221,160,221,0.5);
+}
+
+/* ─── BOTONES ───────────────────────────────────────────────── */
+.botones {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+button {
+  background: linear-gradient(135deg, #FFB6E1 0%, #DDA0DD 100%);
+  color: white;
+  border: none;
+  padding: 12px 30px;
+  font-size: 1em;
+  border-radius: 25px;
+  cursor: pointer;
+  font-weight: bold;
+  box-shadow: 0 4px 15px rgba(221, 160, 221, 0.4);
+  transition: all 0.3s ease;
+  width: 100%;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(221, 160, 221, 0.6);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 10px rgba(221, 160, 221, 0.4);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Botón detener */
+#btnDetener {
+  background: linear-gradient(135deg, #ffb6b6 0%, #dd9090 100%);
+  box-shadow: 0 4px 15px rgba(221, 144, 144, 0.4);
+}
+
+/* Botón limpiar */
+.btn-limpiar {
+  background: transparent;
+  color: #bba0cc;
+  border: 1.5px solid #e8c8e8;
+  box-shadow: none;
+}
+
+.btn-limpiar:hover {
+  background: #fde8ff;
+  color: #DDA0DD;
+  transform: translateY(-2px);
+  box-shadow: none;
+}
+
+/* ─── CONSOLA (columna derecha) — tu estilo oscuro ──────────── */
+#consoleBox {
+  flex: 1;
+  min-width: 0;
+  height: calc(100vh - 40px);
+  max-height: 800px;
+  border: 1px solid #ccc;
+  padding: 16px;
+  overflow-y: auto;
+  background: #111;
+  color: rgb(253, 234, 255);
+  font-family: monospace;
+  font-size: 13px;
+  border-radius: 16px;
+  text-align: center;
+  line-height: 1.7;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+#consoleBox::-webkit-scrollbar { width: 6px; }
+#consoleBox::-webkit-scrollbar-track { background: transparent; }
+#consoleBox::-webkit-scrollbar-thumb {
+  background: #442244;
+  border-radius: 3px;
+}
+
+/* ─── RESPONSIVE ────────────────────────────────────────────── */
+@media (max-width: 800px) {
+  .layout {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 500px;
+  }
+
+  #consoleBox {
+    width: 100%;
+    height: 400px;
+  }
 }
