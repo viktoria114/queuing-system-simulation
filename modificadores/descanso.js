@@ -1,84 +1,82 @@
-//Lo que me tiro claude code con decirle "descanso" no le envie el ejercicio en si.
-
 // ============================================================
-// modificadores/descanso.js — Modificador: Descanso del servidor
+// modificadores/descanso.js — Problema N°2
 // ============================================================
-// El servidor toma un descanso de duración fija luego de cada
-// servicio completado (o cada N servicios, según implementen).
+// El servidor alterna ciclos: trabaja ΔT segundos, descansa ΔD
+// segundos, trabaja ΔT segundos, etc.
 //
-// HOOKS que usa:
-//   onFinServicioPost  → detecta cuando el servidor queda libre y programa descanso
-//   onEvento_descanso  → evento personalizado: fin del descanso
-//   onLlegada          → bloquea atención si el servidor está en descanso
+// Durante el descanso los clientes se acumulan en cola. Si hay
+// un servicio en curso cuando el servidor se va, ese servicio
+// termina normalmente, pero el próximo cliente NO es tomado
+// de la cola hasta que el servidor regrese.
 //
-// Parámetro: paramsModificadores.descanso = duración del descanso (s)
+// Eventos extra:
+//   servidor_salida  → fin del período de trabajo → servidor ausente
+//   servidor_llegada → fin del descanso           → servidor presente
+//
+// Estado extra en motor:
+//   estado._servidorAusente  (bool)   — motor.js lo respeta al
+//   asignar el siguiente cliente después de un fin de servicio.
+//
+// Parámetros:
+//   paramsModificadores.descanso         = ΔD (duración descanso, default 60 s)
+//   paramsModificadores.descanso_trabajo = ΔT (duración trabajo,  default 30 s)
 // ============================================================
 
 window.modificador_descanso = {
 
   iniciar(estado) {
-    const duracion = estado.paramsModificadores?.descanso ?? 10;
-    console.log(`[Descanso] Inicializado. Duración: ${duracion}s`);
+    const durD = estado.paramsModificadores?.descanso          ?? 60;
+    const durT = estado.paramsModificadores?.descanso_trabajo  ?? 30;
 
-    // ── Hook 1: al terminar un servicio, si la cola está vacía → descanso ──
-    HookRegistry.registrar("onFinServicioPost", "descanso", ({ estado }) => {
+    estado._servidorAusente = false;
+
+    // Programar la primera salida del servidor
+    estado._eventosExtra.servidor_salida = estado.tiempoActual + durT;
+
+    // ── Evento: servidor se va (fin de período de trabajo) ───────
+    HookRegistry.registrar("onEvento_servidor_salida", "descanso", (estado) => {
+      estado.tiempoActual                    = estado._eventosExtra.servidor_salida;
+      estado._eventosExtra.servidor_salida   = null;
+      estado._servidorAusente                = true;
+
+      const dD = estado.paramsModificadores?.descanso ?? 60;
+      estado._eventosExtra.servidor_llegada  = estado.tiempoActual + dD;
+
+      // Si el PS estaba libre, pasar a AUSENTE para bloquear nuevas atenciones
       if (estado.servidor.estado === "LIBRE") {
-        const duracion = estado.paramsModificadores?.descanso ?? 10;
-        estado.servidor.estado = "DESCANSO";
-        estado._eventosExtra.descanso = estado.tiempoActual + duracion;
-
-        // registrar en consola
-        UI.log(
-          UI.pad("INICIO DESCANSO", 22) +
-          UI.pad(UI.formatHora(estado.tiempoActual), 10) +
-          UI.pad("", 14) +
-          UI.pad(UI.formatHora(estado._eventosExtra.descanso), 14) +
-          UI.pad(estado.cola.length, 6) +
-          UI.pad("DESCANSO", 10)
-        );
+        estado.servidor.estado = "AUSENTE";
       }
+      // Si estaba OCUPADO, _servidorAusente=true es suficiente:
+      // motor.js no tomará el siguiente de la cola al terminar ese servicio.
+
+      Bus.emitir("fila", { evento: "SALIDA SERVIDOR", hora: estado.tiempoActual, estado });
     });
 
-    // ── Hook 2: evento personalizado "fin de descanso" ──
-    HookRegistry.registrar("onEvento_descanso", "descanso", (estado) => {
-      estado.tiempoActual = estado._eventosExtra.descanso;
-      estado._eventosExtra.descanso = null;
+    // ── Evento: servidor regresa (fin del descanso) ─────────────
+    HookRegistry.registrar("onEvento_servidor_llegada", "descanso", (estado) => {
+      estado.tiempoActual                    = estado._eventosExtra.servidor_llegada;
+      estado._eventosExtra.servidor_llegada  = null;
+      estado._servidorAusente                = false;
 
-      UI.log(
-        UI.pad("FIN DESCANSO", 22) +
-        UI.pad(UI.formatHora(estado.tiempoActual), 10) +
-        UI.pad(UI.formatHora(estado.proximoEventoLlegada), 14) +
-        UI.pad("", 14) +
-        UI.pad(estado.cola.length, 6) +
-        UI.pad("LIBRE", 10)
-      );
+      const dT = estado.paramsModificadores?.descanso_trabajo ?? 30;
+      estado._eventosExtra.servidor_salida   = estado.tiempoActual + dT;
 
-      // Si hay clientes esperando, atenderlos
-      if (estado.cola.length > 0) {
-        const siguiente = estado.cola.shift();
-        siguiente.tiempoInicioServicio = estado.tiempoActual;
-        estado.clienteEnServicio = siguiente;
-        estado.servidor.estado = "OCUPADO";
-        estado.proximoEventoFinServicio = estado.tiempoActual + estado.tS;
-      } else {
-        estado.servidor.estado = "LIBRE";
+      // Si el PS quedó libre (AUSENTE) y hay cola, retomar atención
+      if (estado.servidor.estado === "AUSENTE" || estado.servidor.estado === "LIBRE") {
+        if (estado.cola.length > 0) {
+          const siguiente                        = estado.cola.shift();
+          siguiente.tiempoInicioServicio         = estado.tiempoActual;
+          estado.clienteEnServicio               = siguiente;
+          estado.servidor.estado                 = "OCUPADO";
+          estado.proximoEventoFinServicio        = estado.tiempoActual + estado.tS;
+        } else {
+          estado.servidor.estado = "LIBRE";
+        }
       }
-    });
+      // Si estaba OCUPADO, _servidorAusente=false: al terminar ese servicio
+      // motor.js tomará normalmente el siguiente cliente de la cola.
 
-    // ── Hook 3: si llega un cliente durante descanso, va a la cola ──
-    HookRegistry.registrar("onLlegada", "descanso", ({ estado }) => {
-      if (estado.servidor.estado === "DESCANSO") {
-        // Forzar que el cliente vaya a la cola aunque "parezca libre"
-        // Temporalmente marcamos como OCUPADO para que procesarLlegada lo encole
-        estado.servidor.estado = "OCUPADO";
-
-        // Después de que onLlegada termine, restaurar DESCANSO
-        setTimeout(() => {
-          if (estado.servidor.estado === "OCUPADO" && estado.clienteEnServicio === null) {
-            // Solo restaurar si no empezó a atender (no debería, el cliente fue a cola)
-          }
-        }, 0);
-      }
+      Bus.emitir("fila", { evento: "LLEGADA SERVIDOR", hora: estado.tiempoActual, estado });
     });
   },
 };
