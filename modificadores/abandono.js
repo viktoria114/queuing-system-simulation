@@ -37,10 +37,11 @@ window.modificador_abandono = {
         estado.cola = estado.cola.filter(c => c.id !== cliente.id);
         estado.stats.clientesAbandonaron++;
 
-        // Emitir al Bus igual que el motor, para que ui.js lo imprima
+        // Emitir con la hora exacta de abandono (tiempoLimite),
+        // no tiempoActual que es la hora del último evento procesado.
         Bus.emitir("fila", {
           evento: `ABANDONO #${cliente.id}`,
-          hora: ahora,
+          hora: cliente.tiempoLimite,
           estado,
         });
       }
