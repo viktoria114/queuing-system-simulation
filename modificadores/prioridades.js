@@ -1,42 +1,69 @@
-//Lo que me tiro claude code con decirle "prioridades" no le envie el ejercicio en si.
-
 // ============================================================
-// modificadores/prioridades.js — Modificador: Prioridades
+// modificadores/prioridades.js — Problema N°4
 // ============================================================
-// Cada N clientes (configurable) llega uno con prioridad alta.
-// Los clientes de prioridad alta se atienden antes que los normales.
+// Dos tipos de clientes con flujos de llegada independientes:
+//   Tipo A — prioridad alta (prioridad = 1)
+//   Tipo B — prioridad normal (prioridad = 0)
 //
-// La cola ya está ordenada por prioridad en motor.js (sort desc).
-// Este modificador solo asigna el nivel de prioridad al cliente.
+// Flujo A: usa el canal principal de motor.js
+//          (proximoEventoLlegada, intervalo = tLL del input principal)
+// Flujo B: usa evento extra "llegada_B"
+//          (intervalo = paramsModificadores.prioridades)
 //
-// HOOKS que usa:
-//   onLlegada  → asigna prioridad al cliente según su id
+// La cola ya se ordena por prioridad en motor.js (sort desc),
+// por lo que los A siempre se atienden antes que los B.
 //
-// Parámetro: paramsModificadores.prioridades = cada cuántos clientes
-//            llega uno de prioridad alta (ej: 3 → cada 3er cliente)
+// Parámetros:
+//   tLL (input principal)              = ΔtLL tipo A  (default 45 s)
+//   paramsModificadores.prioridades    = ΔtLL tipo B  (default 45 s)
 // ============================================================
 
 window.modificador_prioridades = {
 
   iniciar(estado) {
-    const cadaN = estado.paramsModificadores?.prioridades ?? 3;
-    console.log(`[Prioridades] Inicializado. Cliente prioritario cada ${cadaN} llegadas.`);
+    const tLL_B = estado.paramsModificadores?.prioridades ?? 45;
 
-    HookRegistry.registrar("onLlegada", "prioridades", ({ estado, cliente }) => {
-      const cadaN = estado.paramsModificadores?.prioridades ?? 3;
+    // Arrancar el flujo B
+    estado._eventosExtra.llegada_B = estado.tiempoActual + tLL_B;
 
-      if (cliente.id % cadaN === 0) {
-        cliente.prioridad = 1; // Alta prioridad
-        // Marcar visualmente
-        const eventoLabel = `LLEGADA #${cliente.id} ⭐`;
-
-        // Parchamos el label que imprimirá motor.js reemplazando el texto
-        // (motor.js imprime después de ejecutar los hooks de onLlegada)
-        cliente._labelOverride = eventoLabel;
-      }
+    // ── Hook: marcar cada cliente A con tipo y prioridad alta ────
+    HookRegistry.registrar("onLlegada", "prioridades", ({ cliente }) => {
+      cliente.tipo           = "A";
+      cliente.prioridad      = 1;
+      cliente._labelOverride = `LLEGADA A #${cliente.id}`;
     });
 
-    // Nota: motor.js ya hace estado.cola.sort((a,b) => b.prioridad - a.prioridad)
-    // así que no hay que hacer nada más para ordenar la cola.
+    // ── Evento: llegada de un cliente tipo B ─────────────────────
+    HookRegistry.registrar("onEvento_llegada_B", "prioridades", (estado) => {
+      estado.tiempoActual = estado._eventosExtra.llegada_B;
+      estado.clienteIdCounter++;
+
+      const cliente = {
+        id:                   estado.clienteIdCounter,
+        tiempoLlegada:        estado.tiempoActual,
+        tiempoInicioServicio: null,
+        prioridad:            0,
+        tipo:                 "B",
+        _labelOverride:       `LLEGADA B #${estado.clienteIdCounter}`,
+      };
+
+      if (estado.servidor.estado === "LIBRE") {
+        // PS libre → atender directamente
+        estado.servidor.estado           = "OCUPADO";
+        cliente.tiempoInicioServicio     = estado.tiempoActual;
+        estado.clienteEnServicio         = cliente;
+        estado.proximoEventoFinServicio  = estado.tiempoActual + estado.tS;
+      } else {
+        // PS ocupado → encolar y reordenar por prioridad
+        estado.cola.push(cliente);
+        estado.cola.sort((a, b) => b.prioridad - a.prioridad);
+      }
+
+      // Programar siguiente llegada B
+      const tB = estado.paramsModificadores?.prioridades ?? 45;
+      estado._eventosExtra.llegada_B = estado.tiempoActual + tB;
+
+      Bus.emitir("fila", { evento: cliente._labelOverride, hora: estado.tiempoActual, estado });
+    });
   },
 };

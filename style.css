@@ -138,8 +138,17 @@ input[type="number"] {
 }
 
 .mod-param.activo {
-  max-height: 60px;
+  max-height: 140px;
   padding: 0 14px 10px;
+}
+
+.param-label {
+  display: block;
+  font-size: 11px;
+  color: #9b6fa0;
+  text-align: left;
+  margin-top: 6px;
+  margin-bottom: 2px;
 }
 
 .mod-param input[type="number"] {

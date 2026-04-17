@@ -49,6 +49,7 @@ function crearEstadoInicial(params) {
     proximoEventoLlegada:     null,
     proximoEventoFinServicio: null,
     _eventosExtra:            {},  // modificadores pueden inyectar eventos propios
+    _servidorAusente:         false,
 
     stats: {
       clientesAtendidos:   0,
@@ -79,7 +80,7 @@ const HookRegistry = {
   },
 
   registrar(momento, nombre, fn) {
-    if (!this.hooks[momento]) return;
+    if (!this.hooks[momento]) this.hooks[momento] = [];
     this.hooks[momento].push({ nombre, fn });
   },
 
@@ -130,7 +131,7 @@ function procesarLlegada() {
   estado.proximoEventoLlegada = generarProximaLlegada();
   HookRegistry.ejecutar("onLlegadaPost", { estado, cliente });
 
-  Bus.emitir("fila", { evento: `LLEGADA #${cliente.id}`, hora: estado.tiempoActual, estado });
+  Bus.emitir("fila", { evento: cliente._labelOverride || `LLEGADA #${cliente.id}`, hora: estado.tiempoActual, estado });
 }
 
 function procesarFinServicio() {
@@ -144,13 +145,13 @@ function procesarFinServicio() {
                  - (clienteAtendido?.tiempoLlegada ?? estado.tiempoActual);
   estado.stats.tiempoEsperaTotal += Math.max(0, espera);
 
-  if (estado.cola.length > 0) {
+  if (estado.cola.length > 0 && !estado._servidorAusente) {
     const siguiente = estado.cola.shift();
     siguiente.tiempoInicioServicio  = estado.tiempoActual;
     estado.clienteEnServicio        = siguiente;
     estado.proximoEventoFinServicio = generarTiempoServicio();
   } else {
-    estado.servidor.estado          = "LIBRE";
+    estado.servidor.estado          = estado._servidorAusente ? "AUSENTE" : "LIBRE";
     estado.clienteEnServicio        = null;
     estado.proximoEventoFinServicio = null;
   }
