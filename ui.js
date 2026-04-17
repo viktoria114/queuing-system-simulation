@@ -50,29 +50,37 @@ function limpiarConsola() {
 
 // ─── COLUMNAS ────────────────────────────────────────────────
 // Columnas base siempre presentes.
-// Modificadores activos añaden columnas extra separadas por ║.
-//   abandono  → "Prox.Abandono"
-//   seguridad → "Llega al PS" + "Zona Seg."
+// Modificadores activos añaden columnas extra separadas por " .... ".
+//   abandono    → "Prox.Abandono"
+//   seguridad   → "Llega al PS" + "Zona Seg."
+//   descanso    → "Sal.Servidor" + "Reg.Servidor" + "P.S."
+//   prioridades → "Prox.Leg.A" + "Prox.Leg.B" + "Cola A" + "Cola B"
 
-let _abandonoActivo  = false;
-let _seguridadActiva = false;
+let _abandonoActivo    = false;
+let _seguridadActiva   = false;
+let _descansoActivo    = false;
+let _prioridadesActivo = false;
 
-// Separador visual entre columnas base y columnas de modificadores (puntos)
+// Separador visual entre columnas base y columnas de modificadores
 const SEP = " .... ";
+
+function _hayExtras() {
+  return _abandonoActivo || _seguridadActiva || _descansoActivo || _prioridadesActivo;
+}
 
 function getCOL() {
   const cols = { evento: 26, hora: 12, llegada: 16, fin: 16, cola: 8, servidor: 10 };
-  if (_abandonoActivo)  cols.abandono  = 16;
-  if (_seguridadActiva) { cols.zsLlegada = 16; cols.zsEstado = 12; }
-  if (_descansoActivo)    { cols.descanso = 12; cols.descansoTrabajo = 16; }
-  if (_prioridadesActivo) { cols.tLL_A = 12; cols.tLL_B = 12; }
+  if (_abandonoActivo)    cols.abandono  = 16;
+  if (_seguridadActiva)   { cols.zsLlegada = 16; cols.zsEstado = 12; }
+  if (_descansoActivo)    { cols.salida = 16; cols.regreso = 16; cols.ps = 12; }
+  if (_prioridadesActivo) { cols.llegadaA = 16; cols.llegadaB = 16; cols.colaA = 8; cols.colaB = 8; }
   return cols;
 }
 
 // Ancho total contando el separador si hay columnas extra
 function getAncho() {
   const base = Object.values(getCOL()).reduce((a, b) => a + b, 0);
-  return base + ((_abandonoActivo || _seguridadActiva || _descansoActivo || _prioridadesActivo) ? SEP.length : 0);
+  return base + (_hayExtras() ? SEP.length : 0);
 }
 
 // Mínimo tiempoLimite entre clientes en cola (próximo en abandonar)
@@ -95,26 +103,28 @@ function imprimirEncabezadoTabla() {
     pad("| Cola |",          COL.cola)     +
     pad("| Servidor |",      COL.servidor);
 
-  if (_abandonoActivo || _seguridadActiva || _descansoActivo || _prioridadesActivo) {
+  if (_hayExtras()) {
     cabecera += SEP;
-    if (_abandonoActivo)  cabecera += pad("| Prox.Abandono |", COL.abandono);
+    if (_abandonoActivo) {
+      cabecera += pad("| Prox.Abandono |", COL.abandono);
+    }
     if (_seguridadActiva) {
       cabecera +=
-        pad("| Llega al PS |",  COL.zsLlegada) +
-        pad("| Zona Seg. |",    COL.zsEstado);
+        pad("| Llega al PS |", COL.zsLlegada) +
+        pad("| Zona Seg. |",   COL.zsEstado);
     }
     if (_descansoActivo) {
       cabecera +=
-        pad("| Sal.Servidor |",     COL.salida) +
-        pad("| Reg.Servidor |",   COL.regreso)+
-        pad("| P.S. |",          COL.ps);
+        pad("| Sal.Servidor |", COL.salida)  +
+        pad("| Reg.Servidor |", COL.regreso) +
+        pad("| P.S. |",         COL.ps);
     }
     if (_prioridadesActivo) {
       cabecera +=
-        pad("Prox.Llegada A",  COL.llegadaA) +
-        pad("Prox.Llegada B",  COL.llegadaB) +
-        pad("| Cola A |", COL.colaA) +
-        pad("| Cola B |", COL.colaB);
+        pad("| Prox.Leg.A |", COL.llegadaA) +
+        pad("| Prox.Leg.B |", COL.llegadaB) +
+        pad("| Cola A |",     COL.colaA)    +
+        pad("| Cola B |",     COL.colaB);
     }
   }
 
@@ -125,10 +135,9 @@ function imprimirEncabezadoTabla() {
 // ─── FILA DE TABLA ───────────────────────────────────────────
 
 function imprimirFila({ evento, hora, estado }) {
-  const COL = getCOL();
-  const C    = COL_P4;
-    const colaA = estado.cola.filter(c => c.tipo === "A").length;
-    const colaB = estado.cola.filter(c => c.tipo === "B").length;
+  const COL  = getCOL();
+  const colaA = estado.cola.filter(c => c.tipo === "A").length;
+  const colaB = estado.cola.filter(c => c.tipo === "B").length;
 
   let linea =
     padPuntos(evento,                                      COL.evento)   +
@@ -138,30 +147,28 @@ function imprimirFila({ evento, hora, estado }) {
     padPuntos(estado.cola.length,                          COL.cola)     +
     padPuntos(estado.servidor.estado,                      COL.servidor);
 
-  if (_abandonoActivo || _seguridadActiva) {
+  if (_hayExtras()) {
     linea += SEP;
     if (_abandonoActivo) {
       linea += padPuntos(formatHora(proximoAbandono(estado)), COL.abandono);
     }
     if (_seguridadActiva) {
       linea +=
-        padPuntos(formatHora(estado._eventosExtra?.zs),      COL.zsLlegada) +
-        padPuntos(estado.zonaSeguridad ?? "─────",           COL.zsEstado);
+        padPuntos(formatHora(estado._eventosExtra?.zs), COL.zsLlegada) +
+        padPuntos(estado.zonaSeguridad ?? "─────",       COL.zsEstado);
     }
     if (_descansoActivo) {
       linea +=
-        padPuntos(formatHora(estado._eventosExtra?.servidor_salida),    COL.salida)  +
-        padPuntos(formatHora(estado._eventosExtra?.servidor_llegada),   COL.regreso) +
-        padPuntos(psLabel,                                              COL.ps)      +
-        padPuntos(estado._servidorAusente ? "AUSENTE" : "PRESENTE", COL.ps);
+        padPuntos(formatHora(estado._eventosExtra?.servidor_salida),  COL.salida)  +
+        padPuntos(formatHora(estado._eventosExtra?.servidor_llegada), COL.regreso) +
+        padPuntos(estado._servidorAusente ? "AUSENTE" : "PRESENTE",  COL.ps);
     }
     if (_prioridadesActivo) {
       linea +=
-        padPuntos(formatHora(estado.proximoEventoLlegada),            COL.llegadaA) +
-      padPuntos(formatHora(estado._eventosExtra?.llegada_B),        COL.llegadaB) +
-      padPuntos(colaA,                                              COL.colaA)    +
-      padPuntos(colaB,                                              COL.colaB)    ;
-      
+        padPuntos(formatHora(estado.proximoEventoLlegada),      COL.llegadaA) +
+        padPuntos(formatHora(estado._eventosExtra?.llegada_B),  COL.llegadaB) +
+        padPuntos(colaA,                                        COL.colaA)    +
+        padPuntos(colaB,                                        COL.colaB);
     }
   }
 
@@ -195,8 +202,8 @@ function setBotones({ iniciando }) {
 // ─── LEER PARÁMETROS ─────────────────────────────────────────
 
 function leerParametros() {
-  const tLL           = parseFloat(document.getElementById("tiempoLlegada").value);
-  const tS            = parseFloat(document.getElementById("tiempoServicio").value);
+  const tLL         = parseFloat(document.getElementById("tiempoLlegada").value);
+  const tS          = parseFloat(document.getElementById("tiempoServicio").value);
   const tiempoTotal = parseFloat(document.getElementById("tiempoSimulacion").value);
 
   if (isNaN(tLL) || isNaN(tS) || isNaN(tiempoTotal) || tLL <= 0 || tS <= 0) {
@@ -234,8 +241,10 @@ function iniciarSimulacion() {
   if (!params) return;
 
   // Fijar flags ANTES del encabezado para que getCOL() y getAncho() sean correctos
-  _abandonoActivo  = params.modificadoresActivos?.abandono  ?? false;
-  _seguridadActiva = params.modificadoresActivos?.seguridad ?? false;
+  _abandonoActivo    = params.modificadoresActivos?.abandono    ?? false;
+  _seguridadActiva   = params.modificadoresActivos?.seguridad   ?? false;
+  _descansoActivo    = params.modificadoresActivos?.descanso    ?? false;
+  _prioridadesActivo = params.modificadoresActivos?.prioridades ?? false;
 
   limpiarConsola();
 
@@ -243,11 +252,11 @@ function iniciarSimulacion() {
   logLinea("═".repeat(ancho));
   logLinea("  SIMULACIÓN DE SISTEMA DE COLAS");
 
-  if (params.modificadoresActivos.descanso) {
+  if (_descansoActivo) {
     const dD = params.paramsModificadores.descanso          ?? 60;
     const dT = params.paramsModificadores.descanso_trabajo  ?? 30;
     logLinea(`  tLL=${params.tLL}s  |  tS=${params.tS}s  |  ΔD=${dD}s  |  ΔT=${dT}s  |  T=${params.tiempoTotal}s`);
-  } else if (params.modificadoresActivos.prioridades) {
+  } else if (_prioridadesActivo) {
     const tB = params.paramsModificadores.prioridades ?? 45;
     logLinea(`  tLL_A=${params.tLL}s  |  tLL_B=${tB}s  |  tS=${params.tS}s  |  T=${params.tiempoTotal}s`);
   } else {
@@ -306,4 +315,3 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
 });
-
