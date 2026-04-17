@@ -24,7 +24,10 @@
             <span class="mod-badge" id="badge_descanso">OFF</span>
           </label>
           <div class="mod-param" id="param-row_descanso">
-            <input type="number" disabled id="param_descanso" placeholder="Duración (s)" value="10" />
+            <span class="param-label">Duración descanso ΔD (s)</span>
+            <input type="number" disabled id="param_descanso" placeholder="Descanso (s)" value="60" />
+            <span class="param-label">Duración trabajo ΔT (s)</span>
+            <input type="number" disabled id="param_descanso_trabajo" placeholder="Trabajo (s)" value="30" />
           </div>
         </div>
 
@@ -46,7 +49,8 @@
             <span class="mod-badge" id="badge_prioridades">OFF</span>
           </label>
           <div class="mod-param" id="param-row_prioridades">
-            <input type="number" disabled id="param_prioridades" placeholder="Cada N clientes" value="3" />
+            <span class="param-label">Intervalo llegada tipo B (s)</span>
+            <input type="number" disabled id="param_prioridades" placeholder="tLL tipo B (s)" value="45" />
           </div>
         </div>
 
