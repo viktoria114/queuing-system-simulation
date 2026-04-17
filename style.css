@@ -22,7 +22,7 @@ body {
   gap: 20px;
   align-items: flex-start;
   width: 100%;
-  max-width: 1300px;
+  max-width: 1700px;
 }
 
 /* ─── CONTAINER (columna izquierda) — tu estilo crema ───────── */
@@ -257,18 +257,24 @@ button:disabled {
   max-height: 800px;
   border: 1px solid #ccc;
   padding: 16px;
+  overflow-x: auto;
   overflow-y: auto;
   background: #111;
   color: rgb(253, 234, 255);
   font-family: monospace;
   font-size: 13px;
   border-radius: 16px;
-  text-align: center;
+  text-align: left;
   line-height: 1.7;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 
-#consoleBox::-webkit-scrollbar { width: 6px; }
+/* Cada fila de la consola no rompe línea para mantener el alineado de tabla */
+#consoleBox div {
+  white-space: nowrap;
+}
+
+#consoleBox::-webkit-scrollbar       { width: 6px; height: 6px; }
 #consoleBox::-webkit-scrollbar-track { background: transparent; }
 #consoleBox::-webkit-scrollbar-thumb {
   background: #442244;

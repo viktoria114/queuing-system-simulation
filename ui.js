@@ -7,7 +7,7 @@
 // ─── FORMATO ─────────────────────────────────────────────────
 
 function formatHora(seg) {
-  if (seg === null || seg === undefined || seg === Infinity) return "  ───── ";
+  if (seg === null || seg === undefined || seg === Infinity) return "─────";
   const h = Math.floor(seg / 3600);
   const m = Math.floor((seg % 3600) / 60);
   const s = Math.floor(seg % 60);
@@ -48,111 +48,124 @@ function limpiarConsola() {
   if (box) box.innerHTML = "";
 }
 
-// ─── DEFINICIONES DE COLUMNAS ────────────────────────────────
+// ─── COLUMNAS ────────────────────────────────────────────────
+// Columnas base siempre presentes.
+// Modificadores activos añaden columnas extra separadas por ║.
+//   abandono  → "Prox.Abandono"
+//   seguridad → "Llega al PS" + "Zona Seg."
 
-// Estándar (P1, P3, P5)
-const COL = { evento: 26, hora: 12, llegada: 16, fin: 16, cola: 8, servidor: 10 };
+let _abandonoActivo  = false;
+let _seguridadActiva = false;
 
-// Problema 2 — descanso activo
-const COL_P2 = { evento: 22, hora: 10, llegada: 12, fin: 12, salida: 12, regreso: 13, cola: 6, ps: 10, serv: 9 };
+// Separador visual entre columnas base y columnas de modificadores (puntos)
+const SEP = " .... ";
 
-// Problema 4 — prioridades activo
-const COL_P4 = { evento: 22, hora: 10, llegadaA: 14, llegadaB: 14, fin: 14, colaA: 8, colaB: 8, ps: 10 };
+function getCOL() {
+  const cols = { evento: 26, hora: 12, llegada: 16, fin: 16, cola: 8, servidor: 10 };
+  if (_abandonoActivo)  cols.abandono  = 16;
+  if (_seguridadActiva) { cols.zsLlegada = 16; cols.zsEstado = 12; }
+  if (_descansoActivo)    { cols.descanso = 12; cols.descansoTrabajo = 16; }
+  if (_prioridadesActivo) { cols.tLL_A = 12; cols.tLL_B = 12; }
+  return cols;
+}
 
-// ─── ENCABEZADO DE TABLA ─────────────────────────────────────
+// Ancho total contando el separador si hay columnas extra
+function getAncho() {
+  const base = Object.values(getCOL()).reduce((a, b) => a + b, 0);
+  return base + ((_abandonoActivo || _seguridadActiva || _descansoActivo || _prioridadesActivo) ? SEP.length : 0);
+}
 
-function imprimirEncabezadoTabla(modificadoresActivos = {}) {
-  if (modificadoresActivos.descanso) {
-    const C = COL_P2;
-    const ancho = Object.values(C).reduce((a, b) => a + b, 0);
-    logLinea(
-      pad("Evento",        C.evento)  +
-      pad("Hora",          C.hora)    +
-      pad("Prox.Llegada",  C.llegada) +
-      pad("Fin Servicio",  C.fin)     +
-      pad("Sal.Servidor",  C.salida)  +
-      pad("Reg.Servidor",  C.regreso) +
-      pad("Cola",          C.cola)    +
-      pad("P.S.",          C.ps)      +
-      pad("Servidor",      C.serv)
-    );
-    logLinea("─".repeat(ancho));
+// Mínimo tiempoLimite entre clientes en cola (próximo en abandonar)
+function proximoAbandono(estado) {
+  const limites = estado.cola
+    .filter(c => c.tiempoLimite !== undefined)
+    .map(c => c.tiempoLimite);
+  return limites.length ? Math.min(...limites) : null;
+}
 
-  } else if (modificadoresActivos.prioridades) {
-    const C = COL_P4;
-    const ancho = Object.values(C).reduce((a, b) => a + b, 0);
-    logLinea(
-      pad("Evento",          C.evento)   +
-      pad("Hora",            C.hora)     +
-      pad("Prox.Llegada A",  C.llegadaA) +
-      pad("Prox.Llegada B",  C.llegadaB) +
-      pad("Fin Servicio",    C.fin)      +
-      pad("Cola A",          C.colaA)    +
-      pad("Cola B",          C.colaB)    +
-      pad("Servidor",        C.ps)
-    );
-    logLinea("─".repeat(ancho));
+function imprimirEncabezadoTabla() {
+  const COL   = getCOL();
+  const ancho = getAncho();
 
-  } else {
-    const ancho = Object.values(COL).reduce((a, b) => a + b, 0);
-    logLinea(
-      pad("Evento",        COL.evento)   +
-      pad("Hora",          COL.hora)     +
-      pad("Prox.Llegada",  COL.llegada)  +
-      pad("Fin Servicio",  COL.fin)      +
-      pad("Cola",          COL.cola)     +
-      pad("Servidor",      COL.servidor)
-    );
-    logLinea("─".repeat(ancho));
+  let cabecera =
+    pad("| Evento |",        COL.evento)   +
+    pad("| Hora |",          COL.hora)     +
+    pad("| Prox.Llegada |",  COL.llegada)  +
+    pad("| Fin Servicio |",  COL.fin)      +
+    pad("| Cola |",          COL.cola)     +
+    pad("| Servidor |",      COL.servidor);
+
+  if (_abandonoActivo || _seguridadActiva || _descansoActivo || _prioridadesActivo) {
+    cabecera += SEP;
+    if (_abandonoActivo)  cabecera += pad("| Prox.Abandono |", COL.abandono);
+    if (_seguridadActiva) {
+      cabecera +=
+        pad("| Llega al PS |",  COL.zsLlegada) +
+        pad("| Zona Seg. |",    COL.zsEstado);
+    }
+    if (_descansoActivo) {
+      cabecera +=
+        pad("| Sal.Servidor |",     COL.salida) +
+        pad("| Reg.Servidor |",   COL.regreso)+
+        pad("| P.S. |",          COL.ps);
+    }
+    if (_prioridadesActivo) {
+      cabecera +=
+        pad("Prox.Llegada A",  COL.llegadaA) +
+        pad("Prox.Llegada B",  COL.llegadaB) +
+        pad("| Cola A |", COL.colaA) +
+        pad("| Cola B |", COL.colaB);
+    }
   }
+
+  logLinea(cabecera);
+  logLinea("─".repeat(ancho));
 }
 
 // ─── FILA DE TABLA ───────────────────────────────────────────
 
 function imprimirFila({ evento, hora, estado }) {
-  const mods = estado.modificadoresActivos || {};
-
-  if (mods.descanso) {
-    const C   = COL_P2;
-    // PS muestra LIBRE/OCUPADO (nunca AUSENTE — eso va en columna Servidor)
-    const psLabel = (estado.servidor.estado === "AUSENTE") ? "LIBRE" : estado.servidor.estado;
-    logLinea(
-      padPuntos(evento,                                               C.evento)  +
-      padPuntos(formatHora(hora),                                     C.hora)    +
-      padPuntos(formatHora(estado.proximoEventoLlegada),              C.llegada) +
-      padPuntos(formatHora(estado.proximoEventoFinServicio),          C.fin)     +
-      padPuntos(formatHora(estado._eventosExtra?.servidor_salida),    C.salida)  +
-      padPuntos(formatHora(estado._eventosExtra?.servidor_llegada),   C.regreso) +
-      padPuntos(estado.cola.length,                                   C.cola)    +
-      padPuntos(psLabel,                                              C.ps)      +
-      pad(estado._servidorAusente ? "AUSENTE" : "PRESENTE",          C.serv)
-    );
-
-  } else if (mods.prioridades) {
-    const C    = COL_P4;
+  const COL = getCOL();
+  const C    = COL_P4;
     const colaA = estado.cola.filter(c => c.tipo === "A").length;
     const colaB = estado.cola.filter(c => c.tipo === "B").length;
-    logLinea(
-      padPuntos(evento,                                             C.evento)   +
-      padPuntos(formatHora(hora),                                   C.hora)     +
-      padPuntos(formatHora(estado.proximoEventoLlegada),            C.llegadaA) +
-      padPuntos(formatHora(estado._eventosExtra?.llegada_B),        C.llegadaB) +
-      padPuntos(formatHora(estado.proximoEventoFinServicio),        C.fin)      +
-      padPuntos(colaA,                                              C.colaA)    +
-      padPuntos(colaB,                                              C.colaB)    +
-      pad(estado.servidor.estado,                                   C.ps)
-    );
 
-  } else {
-    logLinea(
-      padPuntos(evento,                                      COL.evento)   +
-      padPuntos(formatHora(hora),                            COL.hora)     +
-      padPuntos(formatHora(estado.proximoEventoLlegada),     COL.llegada)  +
-      padPuntos(formatHora(estado.proximoEventoFinServicio), COL.fin)      +
-      padPuntos(estado.cola.length,                          COL.cola)     +
-      pad(estado.servidor.estado,                            COL.servidor)
-    );
+  let linea =
+    padPuntos(evento,                                      COL.evento)   +
+    padPuntos(formatHora(hora),                            COL.hora)     +
+    padPuntos(formatHora(estado.proximoEventoLlegada),     COL.llegada)  +
+    padPuntos(formatHora(estado.proximoEventoFinServicio), COL.fin)      +
+    padPuntos(estado.cola.length,                          COL.cola)     +
+    padPuntos(estado.servidor.estado,                      COL.servidor);
+
+  if (_abandonoActivo || _seguridadActiva) {
+    linea += SEP;
+    if (_abandonoActivo) {
+      linea += padPuntos(formatHora(proximoAbandono(estado)), COL.abandono);
+    }
+    if (_seguridadActiva) {
+      linea +=
+        padPuntos(formatHora(estado._eventosExtra?.zs),      COL.zsLlegada) +
+        padPuntos(estado.zonaSeguridad ?? "─────",           COL.zsEstado);
+    }
+    if (_descansoActivo) {
+      linea +=
+        padPuntos(formatHora(estado._eventosExtra?.servidor_salida),    COL.salida)  +
+        padPuntos(formatHora(estado._eventosExtra?.servidor_llegada),   COL.regreso) +
+        padPuntos(psLabel,                                              COL.ps)      +
+        padPuntos(estado._servidorAusente ? "AUSENTE" : "PRESENTE", COL.ps);
+    }
+    if (_prioridadesActivo) {
+      linea +=
+        padPuntos(formatHora(estado.proximoEventoLlegada),            COL.llegadaA) +
+      padPuntos(formatHora(estado._eventosExtra?.llegada_B),        COL.llegadaB) +
+      padPuntos(colaA,                                              COL.colaA)    +
+      padPuntos(colaB,                                              COL.colaB)    ;
+      
+    }
   }
+
+  logLinea(linea);
 }
 
 function imprimirEstadisticas(estado) {
@@ -161,13 +174,15 @@ function imprimirEstadisticas(estado) {
     ? (s.tiempoEsperaTotal / s.clientesAtendidos).toFixed(1)
     : 0;
 
-  logLinea("─".repeat(76));
+  const sep = "─".repeat(Math.max(getAncho(), 76));
+
+  logLinea(sep);
   logLinea("  ESTADÍSTICAS FINALES");
-  logLinea("─".repeat(76));
+  logLinea(sep);
   logLinea(`  Clientes atendidos:   ${s.clientesAtendidos}`);
   logLinea(`  Clientes abandonaron: ${s.clientesAbandonaron}`);
   logLinea(`  Espera promedio:      ${promEspera}s`);
-  logLinea("─".repeat(76));
+  logLinea(sep);
 }
 
 // ─── BOTONES ─────────────────────────────────────────────────
@@ -180,8 +195,8 @@ function setBotones({ iniciando }) {
 // ─── LEER PARÁMETROS ─────────────────────────────────────────
 
 function leerParametros() {
-  const tLL         = parseFloat(document.getElementById("tiempoLlegada").value);
-  const tS          = parseFloat(document.getElementById("tiempoServicio").value);
+  const tLL           = parseFloat(document.getElementById("tiempoLlegada").value);
+  const tS            = parseFloat(document.getElementById("tiempoServicio").value);
   const tiempoTotal = parseFloat(document.getElementById("tiempoSimulacion").value);
 
   if (isNaN(tLL) || isNaN(tS) || isNaN(tiempoTotal) || tLL <= 0 || tS <= 0) {
@@ -218,9 +233,14 @@ function iniciarSimulacion() {
   const params = leerParametros();
   if (!params) return;
 
+  // Fijar flags ANTES del encabezado para que getCOL() y getAncho() sean correctos
+  _abandonoActivo  = params.modificadoresActivos?.abandono  ?? false;
+  _seguridadActiva = params.modificadoresActivos?.seguridad ?? false;
+
   limpiarConsola();
 
-  logLinea("═".repeat(76));
+  const ancho = getAncho();
+  logLinea("═".repeat(ancho));
   logLinea("  SIMULACIÓN DE SISTEMA DE COLAS");
 
   if (params.modificadoresActivos.descanso) {
@@ -237,9 +257,8 @@ function iniciarSimulacion() {
   const activos = Object.entries(params.modificadoresActivos)
     .filter(([, v]) => v).map(([k]) => k);
   if (activos.length) logLinea(`  Modificadores: ${activos.join(", ")}`);
-  logLinea("═".repeat(76));
-
-  imprimirEncabezadoTabla(params.modificadoresActivos);
+  logLinea("═".repeat(ancho));
+  imprimirEncabezadoTabla();
 
   setBotones({ iniciando: true });
   motorIniciar(params);
@@ -287,3 +306,4 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
 });
+
