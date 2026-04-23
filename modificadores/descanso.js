@@ -4,17 +4,16 @@
 // El servidor alterna ciclos: trabaja ΔT segundos, descansa ΔD
 // segundos, trabaja ΔT segundos, etc.
 //
-// Durante el descanso los clientes se acumulan en cola. Si hay
-// un servicio en curso cuando el servidor se va, ese servicio
-// termina normalmente, pero el próximo cliente NO es tomado
-// de la cola hasta que el servidor regrese.
+// Política (Opción A): si hay un servicio en curso cuando llega
+// la SALIDA, se INTERRUMPE inmediatamente. El cliente vuelve al
+// frente de la cola y el servidor pasa a AUSENTE sin esperar.
 //
 // Eventos extra:
 //   servidor_salida  → fin del período de trabajo → servidor ausente
 //   servidor_llegada → fin del descanso           → servidor presente
 //
 // Estado extra en motor:
-//   estado._servidorAusente  (bool)   — motor.js lo respeta al
+//   estado._servidorAusente  (bool) — motor.js lo respeta al
 //   asignar el siguiente cliente después de un fin de servicio.
 //
 // Parámetros:
@@ -35,46 +34,51 @@ window.modificador_descanso = {
 
     // ── Evento: servidor se va (fin de período de trabajo) ───────
     HookRegistry.registrar("onEvento_servidor_salida", "descanso", (estado) => {
-      estado.tiempoActual                    = estado._eventosExtra.servidor_salida;
-      estado._eventosExtra.servidor_salida   = null;
-      estado._servidorAusente                = true;
+      estado.tiempoActual                  = estado._eventosExtra.servidor_salida;
+      estado._eventosExtra.servidor_salida = null;
+      estado._servidorAusente              = true;
 
       const dD = estado.paramsModificadores?.descanso ?? 60;
-      estado._eventosExtra.servidor_llegada  = estado.tiempoActual + dD;
+      estado._eventosExtra.servidor_llegada = estado.tiempoActual + dD;
 
-      // Si el PS estaba libre, pasar a AUSENTE para bloquear nuevas atenciones
-      if (estado.servidor.estado === "LIBRE") {
-        estado.servidor.estado = "AUSENTE";
+      // Opción A: si hay servicio en curso, interrumpirlo.
+      // Guardamos el tiempo RESTANTE para retomarlo exactamente donde se cortó.
+      if (estado.servidor.estado === "OCUPADO") {
+        const interrumpido = estado.clienteEnServicio;
+        interrumpido._tiempoRestante      = estado.proximoEventoFinServicio - estado.tiempoActual;
+        interrumpido.tiempoInicioServicio  = null;
+        estado.cola.unshift(interrumpido);
+        estado.clienteEnServicio           = null;
+        estado.proximoEventoFinServicio    = null;
       }
-      // Si estaba OCUPADO, _servidorAusente=true es suficiente:
-      // motor.js no tomará el siguiente de la cola al terminar ese servicio.
+
+      estado.servidor.estado = "AUSENTE";
 
       Bus.emitir("fila", { evento: "SALIDA SERVIDOR", hora: estado.tiempoActual, estado });
     });
 
     // ── Evento: servidor regresa (fin del descanso) ─────────────
     HookRegistry.registrar("onEvento_servidor_llegada", "descanso", (estado) => {
-      estado.tiempoActual                    = estado._eventosExtra.servidor_llegada;
-      estado._eventosExtra.servidor_llegada  = null;
-      estado._servidorAusente                = false;
+      estado.tiempoActual                   = estado._eventosExtra.servidor_llegada;
+      estado._eventosExtra.servidor_llegada = null;
+      estado._servidorAusente               = false;
 
       const dT = estado.paramsModificadores?.descanso_trabajo ?? 30;
-      estado._eventosExtra.servidor_salida   = estado.tiempoActual + dT;
+      estado._eventosExtra.servidor_salida  = estado.tiempoActual + dT;
 
-      // Si el PS quedó libre (AUSENTE) y hay cola, retomar atención
-      if (estado.servidor.estado === "AUSENTE" || estado.servidor.estado === "LIBRE") {
-        if (estado.cola.length > 0) {
-          const siguiente                        = estado.cola.shift();
-          siguiente.tiempoInicioServicio         = estado.tiempoActual;
-          estado.clienteEnServicio               = siguiente;
-          estado.servidor.estado                 = "OCUPADO";
-          estado.proximoEventoFinServicio        = estado.tiempoActual + estado.tS;
-        } else {
-          estado.servidor.estado = "LIBRE";
-        }
+      // Retomar atención: si el primero de la cola fue interrumpido, usa su
+      // tiempo restante; si es un cliente nuevo, usa tS completo.
+      if (estado.cola.length > 0) {
+        const siguiente                = estado.cola.shift();
+        siguiente.tiempoInicioServicio  = estado.tiempoActual;
+        estado.clienteEnServicio        = siguiente;
+        estado.servidor.estado          = "OCUPADO";
+        const duracion                  = siguiente._tiempoRestante ?? estado.tS;
+        siguiente._tiempoRestante       = null;
+        estado.proximoEventoFinServicio = estado.tiempoActual + duracion;
+      } else {
+        estado.servidor.estado = "LIBRE";
       }
-      // Si estaba OCUPADO, _servidorAusente=false: al terminar ese servicio
-      // motor.js tomará normalmente el siguiente cliente de la cola.
 
       Bus.emitir("fila", { evento: "LLEGADA SERVIDOR", hora: estado.tiempoActual, estado });
     });

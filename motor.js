@@ -135,6 +135,7 @@ function procesarLlegada() {
 }
 
 function procesarFinServicio() {
+  if (estado._servidorAusente) return;   // no puede completar servicio mientras está ausente
   estado.tiempoActual = estado.proximoEventoFinServicio;
   const clienteAtendido = estado.clienteEnServicio;
 
@@ -183,14 +184,14 @@ function paso() {
     return;
   }
 
-  if (proximoExtra < llegada && proximoExtra < finServicio) {
+  if (proximoExtra <= llegada && proximoExtra <= finServicio) {
     for (const [nombre, tiempo] of Object.entries(estado._eventosExtra)) {
       if (tiempo === proximoExtra) {
         HookRegistry.ejecutar(`onEvento_${nombre}`, estado);
         break;
       }
     }
-  } else if (llegada <= finServicio) {
+  } else if (llegada < finServicio) {
     procesarLlegada();
   } else {
     procesarFinServicio();
