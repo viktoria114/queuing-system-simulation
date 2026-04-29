@@ -1,22 +1,11 @@
 // ============================================================
 // modificadores/seguridad.js — Modificador: Zona de Seguridad
 // ============================================================
-// Según el Problema 5 del PDF:
-// Existe una Zona de Seguridad (ZS) entre la cola y el PS.
-// Un cliente solo puede entrar a la ZS en dos casos:
-//   A) Llega con cola vacía y ZS + PS libres → va directo a ZS.
-//   B) El PS termina servicio → el primer cliente de cola pasa a ZS.
-// Mientras haya servicio en curso, nadie puede entrar a la ZS.
+// El tiempo de cruce de la ZS puede ser fijo o aleatorio.
 //
-// Variables de estado que agrega:
-//   estado.zonaSeguridad: "LIBRE" | "OCUPADO"
-//   estado.clienteEnZona: el cliente que está cruzando la ZS
-//
-// HOOKS:
-//   onIniciar        → inicializa zonaSeguridad en el estado
-//   onLlegada        → decide si el cliente va a ZS (caso A) o a cola
-//   onFinServicioPost → cuando termina el PS, el primer cliente de cola pasa a ZS
-//   onEvento_zs      → evento custom: el cliente en ZS llega al PS
+// Parámetros:
+//   paramsModificadores.seguridad = valor fijo del cruce (s)
+//   randomParams.seguridad        = { modo, min, max }
 // ============================================================
 
 window.modificador_seguridad = {
@@ -26,81 +15,63 @@ window.modificador_seguridad = {
     estado.zonaSeguridad = "LIBRE";
     estado.clienteEnZona = null;
 
-    // ── Hook 1: al iniciar ──
-    HookRegistry.registrar("onIniciar", "seguridad", (estado) => {
-      estado.zonaSeguridad = "LIBRE";
-      estado.clienteEnZona = null;
+    HookRegistry.registrar("onIniciar", "seguridad", (e) => {
+      e.zonaSeguridad = "LIBRE";
+      e.clienteEnZona = null;
     });
 
-    // ── Hook 2: controlar llegadas ──
-    // Caso A: ZS libre y PS libre → cliente entra directo a la ZS.
-    //         Retornamos false para cancelar la asignación al PS del motor.
-    // Caso B: ZS ocupada y PS libre → fingimos PS ocupado para que el motor encole.
-    // Caso C: PS ocupado → motor encola solo, no hacemos nada.
-    HookRegistry.registrar("onLlegada", "seguridad", ({ estado, cliente }) => {
-      if (estado.zonaSeguridad === "LIBRE" && estado.servidor.estado === "LIBRE") {
-        // Caso A: entrada directa a ZS (único caso según el enunciado)
-        estado.zonaSeguridad = "OCUPADO";
-        estado.clienteEnZona = cliente;
-        const tiempoCruce = estado.paramsModificadores?.seguridad ?? 5;
-        estado._eventosExtra.zs = estado.tiempoActual + tiempoCruce;
+    HookRegistry.registrar("onLlegada", "seguridad", ({ estado: e, cliente }) => {
+      if (e.zonaSeguridad === "LIBRE" && e.servidor.estado === "LIBRE") {
+        e.zonaSeguridad = "OCUPADO";
+        e.clienteEnZona = cliente;
+        const tiempoCruceBase = e.paramsModificadores?.seguridad ?? 5;
+        const tiempoCruce = sortearTiempo(tiempoCruceBase, e.randomParams?.seguridad);
+        e._eventosExtra.zs = e.tiempoActual + tiempoCruce;
         return false; // cancela que el motor asigne al PS
       }
 
-      if (estado.zonaSeguridad === "OCUPADO" && estado.servidor.estado === "LIBRE") {
-        // Caso B: ZS ocupada pero PS libre → forzar encolar fingiendo PS ocupado
-        estado.servidor.estado = "OCUPADO";
-        // clienteEnServicio sigue null — el motor encola al cliente
+      if (e.zonaSeguridad === "OCUPADO" && e.servidor.estado === "LIBRE") {
+        e.servidor.estado = "OCUPADO";
       }
     });
 
-    // ── Hook 3: cuando termina el servicio ──
-    // El motor asignó el siguiente de cola al PS. Lo interceptamos: va a ZS primero.
-    // La fila "FIN SERVICIO" se emite después con el estado actualizado
-    // (ZS=OCUPADO, PS=LIBRE), lo que ya muestra que el cliente entró a ZS.
-    HookRegistry.registrar("onFinServicioPost", "seguridad", ({ estado }) => {
-      if (estado.clienteEnServicio !== null) {
-        const clienteParaZS = estado.clienteEnServicio;
+    HookRegistry.registrar("onFinServicioPost", "seguridad", ({ estado: e }) => {
+      if (e.clienteEnServicio !== null) {
+        const clienteParaZS = e.clienteEnServicio;
 
-        // Deshacemos la asignación al PS que hizo el motor
-        estado.proximoEventoFinServicio = null;
-        estado.servidor.estado          = "LIBRE";
-        estado.clienteEnServicio        = null;
+        e.proximoEventoFinServicio = null;
+        e.servidor.estado          = "LIBRE";
+        e.clienteEnServicio        = null;
 
-        // Enviamos al cliente a la zona de seguridad
-        estado.zonaSeguridad = "OCUPADO";
-        estado.clienteEnZona = clienteParaZS;
+        e.zonaSeguridad = "OCUPADO";
+        e.clienteEnZona = clienteParaZS;
 
-        const tiempoCruce = estado.paramsModificadores?.seguridad ?? 5;
-        estado._eventosExtra.zs = estado.tiempoActual + tiempoCruce;
-        // No emitimos fila aquí — el motor emite "FIN SERVICIO" justo después
-        // con el estado ya actualizado (ZS=OCUPADO, PS=LIBRE, Llega al PS=T).
+        const tiempoCruceBase = e.paramsModificadores?.seguridad ?? 5;
+        const tiempoCruce = sortearTiempo(tiempoCruceBase, e.randomParams?.seguridad);
+        e._eventosExtra.zs = e.tiempoActual + tiempoCruce;
       }
     });
 
-    // ── Hook 4: el cliente en ZS llega al PS ──
-    // FIX: pre-inicializamos el array porque HookRegistry.registrar() ignora
-    // nombres que no existen en su objeto inicial (retorna sin registrar).
     if (!HookRegistry.hooks["onEvento_zs"]) HookRegistry.hooks["onEvento_zs"] = [];
-    HookRegistry.registrar("onEvento_zs", "seguridad", (estado) => {
-      estado.tiempoActual     = estado._eventosExtra.zs;
-      estado._eventosExtra.zs = null;
+    HookRegistry.registrar("onEvento_zs", "seguridad", (e) => {
+      e.tiempoActual     = e._eventosExtra.zs;
+      e._eventosExtra.zs = null;
 
-      const cliente = estado.clienteEnZona;
-      estado.zonaSeguridad = "LIBRE";
-      estado.clienteEnZona = null;
+      const cliente = e.clienteEnZona;
+      e.zonaSeguridad = "LIBRE";
+      e.clienteEnZona = null;
 
-      cliente.tiempoInicioServicio        = estado.tiempoActual;
-      estado.clienteEnServicio            = cliente;
-      estado.servidor.estado              = "OCUPADO";
-      estado.proximoEventoFinServicio     = estado.tiempoActual + estado.tS;
+      cliente.tiempoInicioServicio    = e.tiempoActual;
+      e.clienteEnServicio             = cliente;
+      e.servidor.estado               = "OCUPADO";
+      const duracion = sortearTiempo(e.tS, e.randomParams?.tS);
+      e.proximoEventoFinServicio      = e.tiempoActual + duracion;
 
       Bus.emitir("fila", {
         evento: `LLEGA AL PS #${cliente.id}`,
-        hora:   estado.tiempoActual,
-        estado,
+        hora:   e.tiempoActual,
+        estado: e,
       });
     });
-
   },
 };
