@@ -130,15 +130,18 @@ input[type="number"] {
   background: #fde8ff;
 }
 
-/* Panel del parámetro: animación de apertura */
+/* Panel del parámetro: animación de apertura.
+   max-height debe ser suficientemente grande para contener cualquier
+   combinación de campos (incluyendo dos bloques fijo/aleatorio en Descanso).
+   Usamos 600px como techo generoso; la animación igual se ve fluida. */
 .mod-param {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.25s ease, padding 0.25s;
+  transition: max-height 0.4s ease, padding 0.25s;
 }
 
 .mod-param.activo {
-  max-height: 140px;
+  max-height: 600px;
   padding: 0 14px 10px;
 }
 
@@ -297,4 +300,103 @@ button:disabled {
     width: 100%;
     height: 400px;
   }
+}
+/* ─── TIEMPO-CONTROL (switch fijo/aleatorio + campos) ───────── */
+.tiempo-control {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.switch-label {
+  font-size: 11px;
+  color: #9b6fa0;
+  white-space: nowrap;
+}
+
+/* Toggle switch */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider-switch {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: #e0c8e8;
+  border-radius: 20px;
+  transition: background 0.25s;
+}
+
+.slider-switch::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 3px;
+  top: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.25s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+
+.switch input:checked + .slider-switch {
+  background: #DDA0DD;
+}
+
+.switch input:checked + .slider-switch::before {
+  transform: translateX(18px);
+}
+
+.switch input:disabled + .slider-switch {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Campos fijo y aleatorio */
+.tc-fijo input[type="number"],
+.tc-aleatorio input[type="number"] {
+  width: 100%;
+  margin: 0 0 4px 0;
+}
+
+.tc-aleatorio {
+  display: flex;
+  gap: 6px;
+}
+
+.tc-aleatorio input[type="number"] {
+  flex: 1;
+  margin: 0;
+}
+
+/* Error de rango */
+.rango-error {
+  font-size: 11px;
+  color: #d44;
+  text-align: left;
+  margin-top: 2px;
+  display: none;
+}
+
+.rango-error.visible {
+  display: block;
 }

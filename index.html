@@ -17,6 +17,7 @@
 
       <div class="modifiers">
 
+        <!-- DESCANSO -->
         <div class="mod-item">
           <label class="mod-header">
             <input type="checkbox" class="modificador-check" data-mod="descanso" />
@@ -24,13 +25,49 @@
             <span class="mod-badge" id="badge_descanso">OFF</span>
           </label>
           <div class="mod-param" id="param-row_descanso">
+
             <span class="param-label">Duración descanso ΔD (s)</span>
-            <input type="number" disabled id="param_descanso" placeholder="Descanso (s)" value="60" />
+            <div class="tiempo-control">
+              <div class="switch-row">
+                <span class="switch-label">Fijo</span>
+                <label class="switch">
+                  <input type="checkbox" class="modo-switch" data-key="deltaD" disabled />
+                  <span class="slider-switch"></span>
+                </label>
+                <span class="switch-label">Aleatorio</span>
+              </div>
+              <div class="tc-fijo" id="fijo_deltaD">
+                <input type="number" disabled id="param_descanso" placeholder="Descanso (s)" value="60" />
+              </div>
+              <div class="tc-aleatorio" id="alea_deltaD" style="display:none">
+                <input type="number" disabled class="rango-min" data-key="deltaD" placeholder="Mín (s)" value="40" />
+                <input type="number" disabled class="rango-max" data-key="deltaD" placeholder="Máx (s)" value="80" />
+              </div>
+            </div>
+
             <span class="param-label">Duración trabajo ΔT (s)</span>
-            <input type="number" disabled id="param_descanso_trabajo" placeholder="Trabajo (s)" value="30" />
+            <div class="tiempo-control">
+              <div class="switch-row">
+                <span class="switch-label">Fijo</span>
+                <label class="switch">
+                  <input type="checkbox" class="modo-switch" data-key="deltaT" disabled />
+                  <span class="slider-switch"></span>
+                </label>
+                <span class="switch-label">Aleatorio</span>
+              </div>
+              <div class="tc-fijo" id="fijo_deltaT">
+                <input type="number" disabled id="param_descanso_trabajo" placeholder="Trabajo (s)" value="30" />
+              </div>
+              <div class="tc-aleatorio" id="alea_deltaT" style="display:none">
+                <input type="number" disabled class="rango-min" data-key="deltaT" placeholder="Mín (s)" value="20" />
+                <input type="number" disabled class="rango-max" data-key="deltaT" placeholder="Máx (s)" value="40" />
+              </div>
+            </div>
+
           </div>
         </div>
 
+        <!-- ABANDONO -->
         <div class="mod-item">
           <label class="mod-header">
             <input type="checkbox" class="modificador-check" data-mod="abandono" />
@@ -38,10 +75,28 @@
             <span class="mod-badge" id="badge_abandono">OFF</span>
           </label>
           <div class="mod-param" id="param-row_abandono">
-            <input type="number" disabled id="param_abandono" placeholder="Paciencia (s)" value="10" />
+            <span class="param-label">Paciencia del cliente (s)</span>
+            <div class="tiempo-control">
+              <div class="switch-row">
+                <span class="switch-label">Fijo</span>
+                <label class="switch">
+                  <input type="checkbox" class="modo-switch" data-key="abandono" disabled />
+                  <span class="slider-switch"></span>
+                </label>
+                <span class="switch-label">Aleatorio</span>
+              </div>
+              <div class="tc-fijo" id="fijo_abandono">
+                <input type="number" disabled id="param_abandono" placeholder="Paciencia (s)" value="10" />
+              </div>
+              <div class="tc-aleatorio" id="alea_abandono" style="display:none">
+                <input type="number" disabled class="rango-min" data-key="abandono" placeholder="Mín (s)" value="5" />
+                <input type="number" disabled class="rango-max" data-key="abandono" placeholder="Máx (s)" value="20" />
+              </div>
+            </div>
           </div>
         </div>
 
+        <!-- PRIORIDADES -->
         <div class="mod-item">
           <label class="mod-header">
             <input type="checkbox" class="modificador-check" data-mod="prioridades" />
@@ -54,6 +109,7 @@
           </div>
         </div>
 
+        <!-- SEGURIDAD -->
         <div class="mod-item">
           <label class="mod-header">
             <input type="checkbox" class="modificador-check" data-mod="seguridad" />
@@ -61,7 +117,24 @@
             <span class="mod-badge" id="badge_seguridad">OFF</span>
           </label>
           <div class="mod-param" id="param-row_seguridad">
-            <input type="number" disabled id="param_seguridad" placeholder="Tiempo cruce ZS (s)" value="5" />
+            <span class="param-label">Tiempo de cruce ZS (s)</span>
+            <div class="tiempo-control">
+              <div class="switch-row">
+                <span class="switch-label">Fijo</span>
+                <label class="switch">
+                  <input type="checkbox" class="modo-switch" data-key="seguridad" disabled />
+                  <span class="slider-switch"></span>
+                </label>
+                <span class="switch-label">Aleatorio</span>
+              </div>
+              <div class="tc-fijo" id="fijo_seguridad">
+                <input type="number" disabled id="param_seguridad" placeholder="Tiempo cruce ZS (s)" value="5" />
+              </div>
+              <div class="tc-aleatorio" id="alea_seguridad" style="display:none">
+                <input type="number" disabled class="rango-min" data-key="seguridad" placeholder="Mín (s)" value="3" />
+                <input type="number" disabled class="rango-max" data-key="seguridad" placeholder="Máx (s)" value="10" />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -69,11 +142,45 @@
 
       <br />
 
+      <!-- TIEMPO DE LLEGADA -->
       <h5>Tiempo de Llegada (s)</h5>
-      <input type="number" id="tiempoLlegada" value="35" />
+      <div class="tiempo-control">
+        <div class="switch-row">
+          <span class="switch-label">Fijo</span>
+          <label class="switch">
+            <input type="checkbox" class="modo-switch" data-key="tLL" />
+            <span class="slider-switch"></span>
+          </label>
+          <span class="switch-label">Aleatorio</span>
+        </div>
+        <div class="tc-fijo" id="fijo_tLL">
+          <input type="number" id="tiempoLlegada" value="35" />
+        </div>
+        <div class="tc-aleatorio" id="alea_tLL" style="display:none">
+          <input type="number" class="rango-min" data-key="tLL" placeholder="Mín (s)" value="20" />
+          <input type="number" class="rango-max" data-key="tLL" placeholder="Máx (s)" value="50" />
+        </div>
+      </div>
 
+      <!-- TIEMPO DE SERVICIO -->
       <h5>Tiempo de Servicio (s)</h5>
-      <input type="number" id="tiempoServicio" value="40" />
+      <div class="tiempo-control">
+        <div class="switch-row">
+          <span class="switch-label">Fijo</span>
+          <label class="switch">
+            <input type="checkbox" class="modo-switch" data-key="tS" />
+            <span class="slider-switch"></span>
+          </label>
+          <span class="switch-label">Aleatorio</span>
+        </div>
+        <div class="tc-fijo" id="fijo_tS">
+          <input type="number" id="tiempoServicio" value="40" />
+        </div>
+        <div class="tc-aleatorio" id="alea_tS" style="display:none">
+          <input type="number" class="rango-min" data-key="tS" placeholder="Mín (s)" value="25" />
+          <input type="number" class="rango-max" data-key="tS" placeholder="Máx (s)" value="55" />
+        </div>
+      </div>
 
       <h5>Tiempo de Simulación (s)</h5>
       <input type="number" id="tiempoSimulacion" value="500" />

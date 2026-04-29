@@ -1,7 +1,5 @@
 // ============================================================
 // ui.js — Interacción con el DOM
-// Lee inputs, imprime en consola, habilita botones.
-// Se comunica con motor.js solo a través de Bus y motorIniciar/motorDetener.
 // ============================================================
 
 // ─── FORMATO ─────────────────────────────────────────────────
@@ -24,7 +22,6 @@ function padPuntos(texto, largo) {
   return str + " " + ".".repeat(largo - str.length - 2) + " ";
 }
 
-// ─── OBJETO UI (para uso desde modificadores) ────────────────
 const UI = {
   log:       (texto) => logLinea(texto),
   pad,
@@ -49,19 +46,12 @@ function limpiarConsola() {
 }
 
 // ─── COLUMNAS ────────────────────────────────────────────────
-// Columnas base siempre presentes.
-// Modificadores activos añaden columnas extra separadas por " .... ".
-//   abandono    → "Prox.Abandono"
-//   seguridad   → "Llega al PS" + "Zona Seg."
-//   descanso    → "Sal.Servidor" + "Reg.Servidor" + "P.S."
-//   prioridades → "Prox.Leg.A" + "Prox.Leg.B" + "Cola A" + "Cola B"
 
 let _abandonoActivo    = false;
 let _seguridadActiva   = false;
 let _descansoActivo    = false;
 let _prioridadesActivo = false;
 
-// Separador visual entre columnas base y columnas de modificadores
 const SEP = " .... ";
 
 function _hayExtras() {
@@ -77,13 +67,11 @@ function getCOL() {
   return cols;
 }
 
-// Ancho total contando el separador si hay columnas extra
 function getAncho() {
   const base = Object.values(getCOL()).reduce((a, b) => a + b, 0);
   return base + (_hayExtras() ? SEP.length : 0);
 }
 
-// Mínimo tiempoLimite entre clientes en cola (próximo en abandonar)
 function proximoAbandono(estado) {
   const limites = estado.cola
     .filter(c => c.tiempoLimite !== undefined)
@@ -105,9 +93,7 @@ function imprimirEncabezadoTabla() {
 
   if (_hayExtras()) {
     cabecera += SEP;
-    if (_abandonoActivo) {
-      cabecera += pad("| Prox.Abandono |", COL.abandono);
-    }
+    if (_abandonoActivo) cabecera += pad("| Prox.Abandono |", COL.abandono);
     if (_seguridadActiva) {
       cabecera +=
         pad("| Llega al PS |", COL.zsLlegada) +
@@ -161,7 +147,7 @@ function imprimirFila({ evento, hora, estado }) {
       linea +=
         padPuntos(formatHora(estado._eventosExtra?.servidor_salida),  COL.salida)  +
         padPuntos(formatHora(estado._eventosExtra?.servidor_llegada), COL.regreso) +
-        padPuntos(estado._servidorAusente ? "AUSENTE" : "PRESENTE",  COL.ps);
+        padPuntos(estado._servidorPresente ? "PRESENTE" : "AUSENTE",  COL.ps);
     }
     if (_prioridadesActivo) {
       linea +=
@@ -199,11 +185,63 @@ function setBotones({ iniciando }) {
   document.getElementById("btnDetener").disabled  = !iniciando;
 }
 
+// ─── LEER PARÁMETROS DE TIEMPO (fijo o aleatorio) ────────────
+// Para cada clave de tiempo, devuelve { modo, valor, min, max }
+
+function leerParamTiempo(key, idFijo) {
+  const sw = document.querySelector(`.modo-switch[data-key="${key}"]`);
+  const esAleatorio = sw?.checked ?? false;
+
+  if (!esAleatorio) {
+    const val = parseFloat(document.getElementById(idFijo)?.value);
+    return { modo: "fijo", valor: isNaN(val) ? null : val };
+  }
+
+  const minEl = document.querySelector(`.rango-min[data-key="${key}"]`);
+  const maxEl = document.querySelector(`.rango-max[data-key="${key}"]`);
+  const min = parseFloat(minEl?.value);
+  const max = parseFloat(maxEl?.value);
+  return { modo: "aleatorio", min: isNaN(min) ? null : min, max: isNaN(max) ? null : max };
+}
+
+// ─── VALIDAR RANGOS ──────────────────────────────────────────
+
+function validarRangos(randomParams) {
+  const errores = [];
+  const nombres = {
+    tLL:      "Tiempo de Llegada",
+    tS:       "Tiempo de Servicio",
+    deltaD:   "Duración Descanso (ΔD)",
+    deltaT:   "Duración Trabajo (ΔT)",
+    abandono: "Paciencia de Abandono",
+    seguridad:"Tiempo Cruce ZS",
+  };
+
+  for (const [key, cfg] of Object.entries(randomParams)) {
+    if (!cfg || cfg.modo !== "aleatorio") continue;
+    if (cfg.min === null || cfg.max === null || isNaN(cfg.min) || isNaN(cfg.max)) {
+      errores.push(`⚠️  ${nombres[key] ?? key}: completá los campos mínimo y máximo.`);
+    } else if (cfg.min <= 0 || cfg.max <= 0) {
+      errores.push(`⚠️  ${nombres[key] ?? key}: los valores deben ser mayores a 0.`);
+    } else if (cfg.min >= cfg.max) {
+      errores.push(`⚠️  ${nombres[key] ?? key}: el mínimo (${cfg.min}s) debe ser menor al máximo (${cfg.max}s).`);
+    }
+  }
+  return errores;
+}
+
 // ─── LEER PARÁMETROS ─────────────────────────────────────────
 
 function leerParametros() {
-  const tLL         = parseFloat(document.getElementById("tiempoLlegada").value);
-  const tS          = parseFloat(document.getElementById("tiempoServicio").value);
+
+  // Leer tLL (fijo o aleatorio)
+  const cfgLL = leerParamTiempo("tLL", "tiempoLlegada");
+  const tLL   = cfgLL.modo === "fijo" ? cfgLL.valor : (cfgLL.min + cfgLL.max) / 2;
+
+  // Leer tS (fijo o aleatorio)
+  const cfgS = leerParamTiempo("tS", "tiempoServicio");
+  const tS   = cfgS.modo === "fijo" ? cfgS.valor : (cfgS.min + cfgS.max) / 2;
+
   const tiempoTotal = parseFloat(document.getElementById("tiempoSimulacion").value);
 
   if (isNaN(tLL) || isNaN(tS) || isNaN(tiempoTotal) || tLL <= 0 || tS <= 0) {
@@ -221,7 +259,6 @@ function leerParametros() {
       const input = document.getElementById(`param_${nombre}`);
       paramsModificadores[nombre] = parseFloat(input?.value) || 0;
 
-      // Parámetros extra por modificador
       if (nombre === "descanso") {
         const inputT = document.getElementById("param_descanso_trabajo");
         paramsModificadores["descanso_trabajo"] = parseFloat(inputT?.value) || 30;
@@ -229,9 +266,44 @@ function leerParametros() {
     }
   });
 
+  // Construir randomParams para cada clave de tiempo
+  const randomParams = {};
+
+  randomParams.tLL = cfgLL.modo === "aleatorio" ? cfgLL : null;
+  randomParams.tS  = cfgS.modo  === "aleatorio" ? cfgS  : null;
+
+  if (modificadoresActivos.descanso) {
+    const cfgD = leerParamTiempo("deltaD", "param_descanso");
+    const cfgT = leerParamTiempo("deltaT", "param_descanso_trabajo");
+    randomParams.deltaD = cfgD.modo === "aleatorio" ? cfgD : null;
+    randomParams.deltaT = cfgT.modo === "aleatorio" ? cfgT : null;
+    // Actualizar paramsModificadores con valor representativo para el header
+    if (cfgD.modo === "aleatorio") paramsModificadores.descanso = (cfgD.min + cfgD.max) / 2;
+    if (cfgT.modo === "aleatorio") paramsModificadores.descanso_trabajo = (cfgT.min + cfgT.max) / 2;
+  }
+
+  if (modificadoresActivos.abandono) {
+    const cfgA = leerParamTiempo("abandono", "param_abandono");
+    randomParams.abandono = cfgA.modo === "aleatorio" ? cfgA : null;
+    if (cfgA.modo === "aleatorio") paramsModificadores.abandono = (cfgA.min + cfgA.max) / 2;
+  }
+
+  if (modificadoresActivos.seguridad) {
+    const cfgSeg = leerParamTiempo("seguridad", "param_seguridad");
+    randomParams.seguridad = cfgSeg.modo === "aleatorio" ? cfgSeg : null;
+    if (cfgSeg.modo === "aleatorio") paramsModificadores.seguridad = (cfgSeg.min + cfgSeg.max) / 2;
+  }
+
+  // Validar rangos
+  const errores = validarRangos(randomParams);
+  if (errores.length) {
+    errores.forEach(e => logLinea(e));
+    return null;
+  }
+
   const velocidad = parseInt(document.getElementById("velocidad")?.value) ?? 120;
 
-  return { tLL, tS, tiempoTotal, modificadoresActivos, paramsModificadores, velocidad };
+  return { tLL, tS, tiempoTotal, modificadoresActivos, paramsModificadores, randomParams, velocidad };
 }
 
 // ─── INICIAR / DETENER ───────────────────────────────────────
@@ -240,7 +312,6 @@ function iniciarSimulacion() {
   const params = leerParametros();
   if (!params) return;
 
-  // Fijar flags ANTES del encabezado para que getCOL() y getAncho() sean correctos
   _abandonoActivo    = params.modificadoresActivos?.abandono    ?? false;
   _seguridadActiva   = params.modificadoresActivos?.seguridad   ?? false;
   _descansoActivo    = params.modificadoresActivos?.descanso    ?? false;
@@ -252,15 +323,29 @@ function iniciarSimulacion() {
   logLinea("═".repeat(ancho));
   logLinea("  SIMULACIÓN DE SISTEMA DE COLAS");
 
+  // Construir línea de parámetros con indicación fijo/aleatorio
+  function descTiempo(key, idFijo, label) {
+    const sw = document.querySelector(`.modo-switch[data-key="${key}"]`);
+    if (sw?.checked) {
+      const minEl = document.querySelector(`.rango-min[data-key="${key}"]`);
+      const maxEl = document.querySelector(`.rango-max[data-key="${key}"]`);
+      return `${label}=[${minEl?.value}-${maxEl?.value}]s`;
+    }
+    return `${label}=${document.getElementById(idFijo)?.value}s`;
+  }
+
+  const dLL = descTiempo("tLL", "tiempoLlegada", "tLL");
+  const dS  = descTiempo("tS",  "tiempoServicio", "tS");
+
   if (_descansoActivo) {
-    const dD = params.paramsModificadores.descanso          ?? 60;
-    const dT = params.paramsModificadores.descanso_trabajo  ?? 30;
-    logLinea(`  tLL=${params.tLL}s  |  tS=${params.tS}s  |  ΔD=${dD}s  |  ΔT=${dT}s  |  T=${params.tiempoTotal}s`);
+    const dD = descTiempo("deltaD", "param_descanso",        "ΔD");
+    const dT = descTiempo("deltaT", "param_descanso_trabajo","ΔT");
+    logLinea(`  ${dLL}  |  ${dS}  |  ${dD}  |  ${dT}  |  T=${params.tiempoTotal}s`);
   } else if (_prioridadesActivo) {
     const tB = params.paramsModificadores.prioridades ?? 45;
-    logLinea(`  tLL_A=${params.tLL}s  |  tLL_B=${tB}s  |  tS=${params.tS}s  |  T=${params.tiempoTotal}s`);
+    logLinea(`  ${dLL}  |  tLL_B=${tB}s  |  ${dS}  |  T=${params.tiempoTotal}s`);
   } else {
-    logLinea(`  tLL=${params.tLL}s  |  tS=${params.tS}s  |  T=${params.tiempoTotal}s`);
+    logLinea(`  ${dLL}  |  ${dS}  |  T=${params.tiempoTotal}s`);
   }
 
   const activos = Object.entries(params.modificadoresActivos)
@@ -275,6 +360,17 @@ function iniciarSimulacion() {
 
 function detenerSimulacion() {
   motorDetener();
+}
+
+// ─── TOGGLE FIJO/ALEATORIO ───────────────────────────────────
+
+function actualizarModoTiempo(key, checked) {
+  const fijoDiv  = document.getElementById(`fijo_${key}`);
+  const aleaDiv  = document.getElementById(`alea_${key}`);
+  if (!fijoDiv || !aleaDiv) return;
+
+  fijoDiv.style.display = checked ? "none"  : "";
+  aleaDiv.style.display = checked ? ""      : "none";
 }
 
 // ─── ESCUCHAR EVENTOS DEL MOTOR ──────────────────────────────
@@ -293,7 +389,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setBotones({ iniciando: false });
   });
 
-  // Toggle de modificadores: badge + animación de panel + inputs extra
+  // Toggle de modificadores: badge + panel + inputs
   document.querySelectorAll(".modificador-check").forEach(cb => {
     cb.addEventListener("change", () => {
       const nombre = cb.dataset.mod;
@@ -301,15 +397,44 @@ document.addEventListener("DOMContentLoaded", () => {
       const badge  = document.getElementById(`badge_${nombre}`);
       const row    = document.getElementById(`param-row_${nombre}`);
 
-      input.disabled    = !cb.checked;
+      if (input) input.disabled = !cb.checked;
       badge.textContent = cb.checked ? "ON" : "OFF";
       badge.classList.toggle("on", cb.checked);
       row.classList.toggle("activo", cb.checked);
 
-      // Habilitar/deshabilitar inputs extra
+      // Habilitar/deshabilitar switches y campos dentro del modificador
+      row.querySelectorAll(".modo-switch, .rango-min, .rango-max, input[type='number']").forEach(el => {
+        el.disabled = !cb.checked;
+      });
+
       if (nombre === "descanso") {
         const extra = document.getElementById("param_descanso_trabajo");
+        // Si el switch deltaT está en fijo, habilitar el campo fijo; si está en aleatorio, los rango
+        // La lógica ya se maneja via el switch, pero si el mod está desactivado todo se deshabilita
         if (extra) extra.disabled = !cb.checked;
+      }
+    });
+  });
+
+  // Toggle fijo/aleatorio para cada switch de tiempo
+  document.querySelectorAll(".modo-switch").forEach(sw => {
+    sw.addEventListener("change", () => {
+      const key = sw.dataset.key;
+      actualizarModoTiempo(key, sw.checked);
+
+      // Habilitar/deshabilitar los inputs correspondientes
+      const fijoDiv = document.getElementById(`fijo_${key}`);
+      const aleaDiv = document.getElementById(`alea_${key}`);
+
+      // Solo habilitar si el modificador padre está activo (o si es tLL/tS que siempre están activos)
+      const modPadre = sw.closest(".mod-param");
+      const modActivo = modPadre
+        ? modPadre.classList.contains("activo")
+        : true;
+
+      if (modActivo) {
+        fijoDiv?.querySelectorAll("input").forEach(i => i.disabled =  sw.checked);
+        aleaDiv?.querySelectorAll("input").forEach(i => i.disabled = !sw.checked);
       }
     });
   });

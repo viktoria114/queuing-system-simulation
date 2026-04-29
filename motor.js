@@ -4,9 +4,6 @@
 // ============================================================
 
 // ─── BUS DE EVENTOS ─────────────────────────────────────────
-// Canal de comunicación entre motor.js y ui.js.
-// motor.js emite, ui.js escucha. Nunca al revés.
-
 const Bus = {
   _listeners: {},
 
@@ -25,8 +22,6 @@ const Bus = {
 };
 
 // ─── ESTADO ─────────────────────────────────────────────────
-// Única fuente de verdad. Modificadores leen y escriben aquí.
-
 let estado = {};
 
 function crearEstadoInicial(params) {
@@ -36,10 +31,13 @@ function crearEstadoInicial(params) {
     tLL:            params.tLL,
     tS:             params.tS,
 
+    // Parámetros de distribución aleatoria para cada tiempo
+    randomParams: params.randomParams || {},
+
     clienteIdCounter: 0,
 
     servidor: {
-      estado: "LIBRE",          // "LIBRE" | "OCUPADO" | "DESCANSO"
+      estado: "LIBRE",          // "LIBRE" | "OCUPADO"
       tiempoFinServicio: null,
     },
 
@@ -48,8 +46,9 @@ function crearEstadoInicial(params) {
 
     proximoEventoLlegada:     null,
     proximoEventoFinServicio: null,
-    _eventosExtra:            {},  // modificadores pueden inyectar eventos propios
+    _eventosExtra:            {},
     _servidorAusente:         false,
+    _servidorPresente:        true,   // false cuando el servidor está en descanso
 
     stats: {
       clientesAtendidos:   0,
@@ -65,18 +64,15 @@ function crearEstadoInicial(params) {
 }
 
 // ─── HOOKS ──────────────────────────────────────────────────
-// Modificadores se registran con HookRegistry.registrar(momento, nombre, fn).
-// Si fn() retorna false, el evento se cancela.
-
 const HookRegistry = {
   hooks: {
     onIniciar:         [],
-    onLlegada:         [],   // antes de encolar — puede cancelar (return false)
-    onLlegadaPost:     [],   // después de encolar
-    onFinServicio:     [],   // antes de liberar servidor
-    onFinServicioPost: [],   // después de liberar servidor
-    onPaso:            [],   // cada tick del loop
-    onFin:             [],   // al terminar la simulación
+    onLlegada:         [],
+    onLlegadaPost:     [],
+    onFinServicio:     [],
+    onFinServicioPost: [],
+    onPaso:            [],
+    onFin:             [],
   },
 
   registrar(momento, nombre, fn) {
@@ -96,10 +92,28 @@ const HookRegistry = {
   },
 };
 
+// ─── GENERADOR DE TIEMPOS ALEATORIOS ────────────────────────
+// Distribución uniforme entre min y max.
+// Si el modo es "fijo" (o no hay config), devuelve el valor base.
+
+function sortearTiempo(base, randomConfig) {
+  if (!randomConfig || randomConfig.modo !== "aleatorio") return base;
+  const min = randomConfig.min ?? base;
+  const max = randomConfig.max ?? base;
+  return min + Math.random() * (max - min);
+}
+
 // ─── GENERADORES ────────────────────────────────────────────
 
-function generarProximaLlegada()  { return estado.tiempoActual + estado.tLL; }
-function generarTiempoServicio()  { return estado.tiempoActual + estado.tS;  }
+function generarProximaLlegada() {
+  const intervalo = sortearTiempo(estado.tLL, estado.randomParams?.tLL);
+  return estado.tiempoActual + intervalo;
+}
+
+function generarTiempoServicio() {
+  const duracion = sortearTiempo(estado.tS, estado.randomParams?.tS);
+  return estado.tiempoActual + duracion;
+}
 
 // ─── EVENTOS BASE ───────────────────────────────────────────
 
@@ -118,13 +132,13 @@ function procesarLlegada() {
 
   if (continuar !== false) {
     if (estado.servidor.estado === "LIBRE") {
-      estado.servidor.estado        = "OCUPADO";
-      cliente.tiempoInicioServicio  = estado.tiempoActual;
-      estado.clienteEnServicio      = cliente;
+      estado.servidor.estado          = "OCUPADO";
+      cliente.tiempoInicioServicio    = estado.tiempoActual;
+      estado.clienteEnServicio        = cliente;
       estado.proximoEventoFinServicio = generarTiempoServicio();
     } else {
       estado.cola.push(cliente);
-      estado.cola.sort((a, b) => b.prioridad - a.prioridad); // para modificador Prioridades
+      estado.cola.sort((a, b) => b.prioridad - a.prioridad);
     }
   }
 
@@ -135,7 +149,10 @@ function procesarLlegada() {
 }
 
 function procesarFinServicio() {
-  if (estado._servidorAusente) return;   // no puede completar servicio mientras está ausente
+  // Si el servidor no está presente, el cliente espera en el PS:
+  // el fin de servicio no se procesa hasta que el servidor regrese.
+  if (!estado._servidorPresente) return;
+
   estado.tiempoActual = estado.proximoEventoFinServicio;
   const clienteAtendido = estado.clienteEnServicio;
 
@@ -146,13 +163,13 @@ function procesarFinServicio() {
                  - (clienteAtendido?.tiempoLlegada ?? estado.tiempoActual);
   estado.stats.tiempoEsperaTotal += Math.max(0, espera);
 
-  if (estado.cola.length > 0 && !estado._servidorAusente) {
+  if (estado.cola.length > 0) {
     const siguiente = estado.cola.shift();
     siguiente.tiempoInicioServicio  = estado.tiempoActual;
     estado.clienteEnServicio        = siguiente;
     estado.proximoEventoFinServicio = generarTiempoServicio();
   } else {
-    estado.servidor.estado          = estado._servidorAusente ? "AUSENTE" : "LIBRE";
+    estado.servidor.estado          = "LIBRE";
     estado.clienteEnServicio        = null;
     estado.proximoEventoFinServicio = null;
   }
@@ -171,8 +188,13 @@ function paso() {
 
   HookRegistry.ejecutar("onPaso", estado);
 
-  const llegada     = estado.proximoEventoLlegada     ?? Infinity;
-  const finServicio = estado.proximoEventoFinServicio ?? Infinity;
+  const llegada = estado.proximoEventoLlegada ?? Infinity;
+
+  // Si el servidor no está presente, el fin de servicio queda congelado
+  // hasta que descanso.js llame al regreso del servidor.
+  const finServicio = (estado.proximoEventoFinServicio !== null && estado._servidorPresente)
+                      ? estado.proximoEventoFinServicio
+                      : Infinity;
 
   const tiemposExtra = Object.values(estado._eventosExtra).filter(t => t !== null);
   const proximoExtra = tiemposExtra.length ? Math.min(...tiemposExtra) : Infinity;
@@ -191,7 +213,7 @@ function paso() {
         break;
       }
     }
-  } else if (llegada < finServicio) {
+  } else if (llegada <= finServicio) {
     procesarLlegada();
   } else {
     procesarFinServicio();
@@ -207,20 +229,22 @@ function _finalizar() {
 }
 
 // ─── API PÚBLICA ─────────────────────────────────────────────
-// Estas son las únicas funciones que ui.js llama sobre el motor.
 
 function motorIniciar(params) {
   if (_timer) clearTimeout(_timer);
-  //Bus.limpiar();
   HookRegistry.limpiar();
 
   estado = crearEstadoInicial(params);
-  estado.corriendo   = true;
-  estado._eventosExtra = {};
-  estado._velocidad  = params.velocidad ?? 120;
-  estado.proximoEventoLlegada = estado.tLL;
+  estado.corriendo         = true;
+  estado._eventosExtra     = {};
+  estado._velocidad        = params.velocidad ?? 120;
+  estado._servidorPresente = true;
+  estado._servidorAusente  = false;
 
-  // Inicializar modificadores activos
+  // Primera llegada también puede ser aleatoria
+  const primerIntervalo = sortearTiempo(estado.tLL, estado.randomParams?.tLL);
+  estado.proximoEventoLlegada = primerIntervalo;
+
   for (const [nombre, activo] of Object.entries(estado.modificadoresActivos)) {
     if (activo && window[`modificador_${nombre}`]) {
       window[`modificador_${nombre}`].iniciar(estado);
