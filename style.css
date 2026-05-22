@@ -860,3 +860,33 @@ button:disabled {
 .rango-error.visible {
   display: block;
 }
+
+/* ── Columna Gráficamente ─────────────────────────────────── */
+.graf-td {
+  white-space: nowrap;
+  text-align: left;
+  padding: 4px 10px;
+}
+.graf-srv {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ccc;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.graf-srv.busy {
+  background: #e0e0e0;
+  border-color: #aaa;
+}
+.graf-cli {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  background: #bbb;
+  border: 2px solid #888;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 2px;
+}

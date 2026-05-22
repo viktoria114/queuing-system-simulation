@@ -18,6 +18,7 @@ window.vectorInicial = {
   // pierdan al cerrar y reabrir el modal, o al cambiar PS/Zs
   // (que re-renderiza la tabla).
   _state: {
+    vi_hora: "0",
     vi_Qa: "0", vi_PS: "LIBRE",  vi_Ts:  "0",
     vi_Te: "0", vi_S:  "trabajando", vi_Ttd: "0",
     vi_Qb: "0", vi_Zs: "LIBRE",  vi_Tz:  "0",
@@ -31,6 +32,7 @@ window.vectorInicial = {
   //   "PS_LIBRE"   → solo si PS=LIBRE   (Zs solo aplica si el PS está libre)
   //   "ZS_OCUPADO" → solo si Zs=OCUPADO (Tz: tiempo ya en la zona)
   _COLS: [
+    { id: "vi_hora", label: "Hora", sub: "Tiempo inicial (s)", type: "number", mod: null, cond: null, min: 0 },
     { id: "vi_Qa",  label: "Qa",  sub: "Personas en cola",    type: "number", mod: null,          cond: null,         min: 0 },
     { id: "vi_PS",  label: "PS",  sub: "Estado del servidor", type: "select", mod: null,          cond: null,         opts: ["LIBRE","OCUPADO"] },
     { id: "vi_Ts",  label: "Ts",  sub: "Ya servido (s)",      type: "number", mod: null,          cond: "PS_OCUPADO", min: 0 },
@@ -52,6 +54,7 @@ window.vectorInicial = {
       return el ? el.value : (this._state[id] ?? fallback);
     };
     return {
+      hora: parseFloat(get("vi_hora", "0")) || 0,
       Qa:  parseInt(get("vi_Qa",  "0"))    || 0,
       PS:  get("vi_PS", "LIBRE"),
       Ts:  parseFloat(get("vi_Ts", "0"))   || 0,
@@ -174,9 +177,11 @@ window.vectorInicial = {
   // para que el usuario vea el estado configurado sin abrir el modal.
   _actualizarDisplay() {
     const vi = this.leer();
+    const h = document.getElementById("vi_disp_hora");
     const c = document.getElementById("vi_disp_cola");
     const s = document.getElementById("vi_disp_servidor");
-    if (c) c.textContent = vi.Qa + (vi.Qb || 0); // total de clientes en cola
+    if (h) h.textContent = vi.hora || 0;
+    if (c) c.textContent = vi.Qa + (vi.Qb || 0);
     if (s) s.textContent = vi.PS;
   },
 
@@ -299,8 +304,36 @@ window.vectorInicial = {
       estado.clienteEnZona = clienteZS;
       const tzBase     = estado.paramsModificadores?.seguridad ?? 5;
       const tzTotal    = sortearTiempo(tzBase, estado.randomParams?.seguridad);
-      const restanteZS = Math.max(0.5, tzTotal - vi.Tz); // tiempo que le falta en la zona
+      const restanteZS = Math.max(0.5, tzTotal - vi.Tz);
       estado._eventosExtra.zs = restanteZS;
+    }
+
+    // 5b. Auto-start: si el PS quedó LIBRE pero hay clientes en cola,
+    // el motor no tiene ningún fin-servicio programado y terminaría
+    // de inmediato. Iniciamos el servicio del primero de la cola.
+    const _zsOcupado = mods.seguridad && vi.Zs === "OCUPADO";
+    if (vi.PS !== "OCUPADO" && estado.cola.length > 0 && !estado._servidorAusente && !_zsOcupado) {
+      const siguiente = estado.cola.shift();
+      siguiente.tiempoInicioServicio = estado.tiempoActual;
+      estado.clienteEnServicio = siguiente;
+      estado.servidor.estado = "OCUPADO";
+      const duracion = sortearTiempo(estado.tS, estado.randomParams?.tS);
+      estado.proximoEventoFinServicio = estado.tiempoActual + duracion;
+    }
+
+    // 6. Hora de inicio: desplaza el reloj y todos los tiempos de evento.
+    // Todos los tiempos calculados arriba son relativos a t=0; al cambiar
+    // la hora de inicio hay que sumarle la diferencia a cada uno.
+    if (vi.hora > 0) {
+      estado.tiempoActual = vi.hora;
+      if (estado.proximoEventoLlegada   != null) estado.proximoEventoLlegada   += vi.hora;
+      if (estado.proximoEventoFinServicio != null) estado.proximoEventoFinServicio += vi.hora;
+      for (const key of Object.keys(estado._eventosExtra)) {
+        if (estado._eventosExtra[key] != null) estado._eventosExtra[key] += vi.hora;
+      }
+      for (const c of estado.cola) {
+        if (c.tiempoLimite != null) c.tiempoLimite += vi.hora;
+      }
     }
   },
 
@@ -344,6 +377,7 @@ function guardarVectorInicial() {
 // Restablece todos los campos del V(0) a sus valores por defecto (todo en cero/libre).
 function resetVectorInicial() {
   window.vectorInicial._state = {
+    vi_hora: "0",
     vi_Qa: "0", vi_PS: "LIBRE",  vi_Ts:  "0",
     vi_Te: "0", vi_S:  "trabajando", vi_Ttd: "0",
     vi_Qb: "0", vi_Zs: "LIBRE",  vi_Tz:  "0",

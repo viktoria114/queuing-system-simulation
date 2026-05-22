@@ -206,6 +206,26 @@ function mkTd(valor, mod) {
   return td;
 }
 
+// ─── CELDA GRÁFICA ───────────────────────────────────────────
+// Muestra el estado del sistema con la simbología habitual:
+// □/■ = servidor libre/ocupado  ● = cliente en cola
+function mkTdGraf(estado) {
+  const td = document.createElement("td");
+  td.className = "graf-td";
+
+  const srv = document.createElement("span");
+  srv.className = "graf-srv" + (estado.servidor.estado === "OCUPADO" ? " busy" : "");
+  td.appendChild(srv);
+
+  for (let i = 0; i < estado.cola.length; i++) {
+    const cli = document.createElement("span");
+    cli.className = "graf-cli";
+    td.appendChild(cli);
+  }
+
+  return td;
+}
+
 // ─── ENCABEZADO ───────────────────────────────────────────────
 // Construye la fila de encabezados de la tabla de eventos.
 // Las columnas base siempre aparecen; las columnas de modificadores
@@ -243,6 +263,7 @@ function imprimirEncabezadoTabla() {
   if (_prioridadesActivo) tr.append(thMod("Próx. Leg. A", "prioridades"), mkTh("Próx. Leg. B", "prioridades"), mkTh("Cola A", "prioridades"), mkTh("Cola B", "prioridades"));
   if (_desvioActivo)      tr.append(thMod("Desviados", "desvio"));
 
+  tr.append(mkTh("Gráficamente"));
   thead.appendChild(tr);
 }
 
@@ -299,6 +320,7 @@ function imprimirFila({ evento, hora, estado }) {
     if (_desvioActivo) tr.append(tdMod(estado.stats.clientesDesviados ?? 0, "desvio"));
   }
 
+  tr.appendChild(mkTdGraf(estado));
   tbody.appendChild(tr);
   // Auto-scroll para seguir el último evento
   const wrapper = document.getElementById("tableWrapper");
@@ -488,7 +510,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Al iniciar, imprimir la fila V(0) como primer registro de la tabla.
   Bus.on("inicio", (estado) => {
-    imprimirFila({ evento: "V(0) — INICIO", hora: 0, estado });
+    imprimirFila({ evento: "V(0) — INICIO", hora: estado.tiempoActual, estado });
   });
 
   Bus.on("fin", (estado) => {
