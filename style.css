@@ -867,14 +867,25 @@ button:disabled {
   text-align: left;
   padding: 4px 10px;
 }
+.graf-srv-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.graf-belly {
+  width: 12px;
+  height: 6px;
+  background: #888;
+  border-radius: 6px 6px 0 0;
+}
 .graf-srv {
   display: inline-block;
   width: 14px;
   height: 14px;
   border: 2px solid #ccc;
   border-radius: 2px;
-  vertical-align: middle;
-  margin-right: 2px;
 }
 .graf-srv.busy {
   background: #e0e0e0;

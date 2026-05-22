@@ -208,14 +208,26 @@ function mkTd(valor, mod) {
 
 // ─── CELDA GRÁFICA ───────────────────────────────────────────
 // Muestra el estado del sistema con la simbología habitual:
-// □/■ = servidor libre/ocupado  ● = cliente en cola
+// □/■ = puesto de servicio libre/ocupado  ● = cliente en cola
+// La "panzita" (semicírculo sobre el cuadrado) indica que el servidor está presente.
+// Desaparece cuando _servidorAusente es true (descanso activo y servidor fuera).
 function mkTdGraf(estado) {
   const td = document.createElement("td");
   td.className = "graf-td";
 
+  const wrap = document.createElement("span");
+  wrap.className = "graf-srv-wrap";
+
+  if (!estado._servidorAusente) {
+    const belly = document.createElement("span");
+    belly.className = "graf-belly";
+    wrap.appendChild(belly);
+  }
+
   const srv = document.createElement("span");
   srv.className = "graf-srv" + (estado.servidor.estado === "OCUPADO" ? " busy" : "");
-  td.appendChild(srv);
+  wrap.appendChild(srv);
+  td.appendChild(wrap);
 
   for (let i = 0; i < estado.cola.length; i++) {
     const cli = document.createElement("span");
@@ -245,7 +257,7 @@ function imprimirEncabezadoTabla() {
     mkTh("Próx. Llegada"),
     mkTh("Fin Servicio"),
     mkTh("Cola"),
-    mkTh("Servidor"),
+    mkTh("Puesto de Servicio"),
   );
 
   // Columnas extra: la primera recibe "sep-left" para separador visual.
@@ -259,7 +271,7 @@ function imprimirEncabezadoTabla() {
 
   if (_abandonoActivo)    tr.append(thMod("Próx. Abandono", "abandono"));
   if (_seguridadActiva)   tr.append(thMod("Llega al PS", "seguridad"),    mkTh("Zona Seg.", "seguridad"));
-  if (_descansoActivo)    tr.append(thMod("Sal. Servidor", "descanso"),   mkTh("Reg. Servidor", "descanso"), mkTh("P.S.", "descanso"));
+  if (_descansoActivo)    tr.append(thMod("Sal. Servidor", "descanso"),   mkTh("Reg. Servidor", "descanso"), mkTh("Servidor", "descanso"));
   if (_prioridadesActivo) tr.append(thMod("Próx. Leg. A", "prioridades"), mkTh("Próx. Leg. B", "prioridades"), mkTh("Cola A", "prioridades"), mkTh("Cola B", "prioridades"));
   if (_desvioActivo)      tr.append(thMod("Desviados", "desvio"));
 
