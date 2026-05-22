@@ -1,16 +1,19 @@
 // ============================================================
-// modificadores/descanso.js — Problema N°2
+// modificadores/descanso.js — Modificador: Descanso del servidor
 // ============================================================
-// El servidor alterna ciclos: trabaja ΔT segundos, descansa ΔD segundos.
+// Problema 1 / Problema 2: el servidor alterna ciclos de trabajo
+// (duración ΔT) y descanso (duración ΔD).
 //
-// Política: si hay un servicio en curso cuando llega la SALIDA,
-// el cliente SE QUEDA en el PS. El servidor se va (estado._servidorPresente = false)
-// y el fin de servicio queda congelado. Cuando el servidor regresa,
-// el motor retoma el fin de servicio desde donde quedó (tiempo restante).
+// Política durante el descanso:
+//   - Si hay un cliente en servicio cuando llega la SALIDA, ese cliente
+//     SE QUEDA en el PS (no vuelve a la cola). El fin de servicio queda
+//     congelado: motor.js no lo procesa mientras _servidorPresente === false.
+//   - Cuando el servidor regresa, retoma el servicio desde el tiempo
+//     restante guardado en clienteEnServicio._tiempoRestante.
 //
 // Variables de estado que usa:
-//   estado._servidorPresente  (bool) — false mientras está en descanso
-//   estado._servidorAusente   (bool) — alias invertido para compatibilidad con ui.js
+//   estado._servidorPresente  → false mientras descansa
+//   estado._servidorAusente   → alias invertido para la UI
 //
 // Parámetros:
 //   paramsModificadores.descanso         = ΔD (duración descanso, default 60 s)
@@ -22,6 +25,7 @@
 window.modificador_descanso = {
 
   iniciar(estado) {
+    // Sortear la duración del primer período de trabajo y agendarlo
     const durT = sortearTiempo(
       estado.paramsModificadores?.descanso_trabajo ?? 30,
       estado.randomParams?.deltaT
@@ -30,50 +34,49 @@ window.modificador_descanso = {
     estado._servidorPresente = true;
     estado._servidorAusente  = false;
 
-    // Programar la primera salida del servidor
+    // El primer evento del servidor es la salida al primer descanso
     estado._eventosExtra.servidor_salida = estado.tiempoActual + durT;
 
-    // ── Evento: servidor se va (fin de período de trabajo) ───────
+    // ── Evento: servidor se va (fin del período de trabajo) ──────
+    // Se dispara cuando expira servidor_salida.
     HookRegistry.registrar("onEvento_servidor_salida", "descanso", (e) => {
       e.tiempoActual                  = e._eventosExtra.servidor_salida;
-      e._eventosExtra.servidor_salida = null;
+      e._eventosExtra.servidor_salida = null; // limpiar; se repondrá al regresar
       e._servidorPresente             = false;
       e._servidorAusente              = true;
 
-      // Calcular duración del descanso (puede ser aleatoria)
+      // Sortear duración del descanso y agendar el regreso
       const dD = sortearTiempo(
         e.paramsModificadores?.descanso ?? 60,
         e.randomParams?.deltaD
       );
       e._eventosExtra.servidor_llegada = e.tiempoActual + dD;
 
-      // Si hay cliente en servicio: guardar tiempo restante, pero
-      // el cliente SE QUEDA en el PS (no vuelve a la cola).
-      // El fin de servicio queda congelado: motor.js no lo procesa
-      // mientras _servidorPresente === false.
+      // Si hay cliente en servicio: guardar tiempo restante.
+      // El cliente NO vuelve a la cola; el PS queda "ocupado pero congelado".
+      // motor.js ignora el fin de servicio mientras !_servidorPresente.
       if (e.clienteEnServicio !== null) {
         const restante = e.proximoEventoFinServicio - e.tiempoActual;
         e.clienteEnServicio._tiempoRestante = restante;
-        // proximoEventoFinServicio se mantiene para saber cuánto falta,
-        // pero el loop principal lo ignora mientras !_servidorPresente.
+        // proximoEventoFinServicio se mantiene para referencia, pero
+        // el bucle principal lo ignora hasta que _servidorPresente vuelva a ser true.
       }
 
-      e.servidor.estado = "OCUPADO"; // sigue ocupado con el cliente en espera (o LIBRE si no hay)
-      if (e.clienteEnServicio === null) {
-        e.servidor.estado = "LIBRE";
-      }
+      // Actualizar estado del servidor para la tabla
+      e.servidor.estado = e.clienteEnServicio !== null ? "OCUPADO" : "LIBRE";
 
       Bus.emitir("fila", { evento: "SALIDA SERVIDOR", hora: e.tiempoActual, estado: e });
     });
 
-    // ── Evento: servidor regresa (fin del descanso) ─────────────
+    // ── Evento: servidor regresa (fin del período de descanso) ───
+    // Se dispara cuando expira servidor_llegada.
     HookRegistry.registrar("onEvento_servidor_llegada", "descanso", (e) => {
       e.tiempoActual                    = e._eventosExtra.servidor_llegada;
       e._eventosExtra.servidor_llegada  = null;
       e._servidorPresente               = true;
       e._servidorAusente                = false;
 
-      // Calcular duración del próximo período de trabajo (puede ser aleatoria)
+      // Sortear duración del próximo período de trabajo y agendarlo
       const dT = sortearTiempo(
         e.paramsModificadores?.descanso_trabajo ?? 30,
         e.randomParams?.deltaT
@@ -81,11 +84,10 @@ window.modificador_descanso = {
       e._eventosExtra.servidor_salida = e.tiempoActual + dT;
 
       if (e.clienteEnServicio !== null) {
-        // Hay un cliente que estaba esperando en el PS:
-        // retomar con el tiempo restante que fue guardado.
+        // Había un cliente esperando en el PS: reanudar con el tiempo restante
         const restante = e.clienteEnServicio._tiempoRestante ?? e.tS;
-        e.clienteEnServicio._tiempoRestante = null;
-        e.clienteEnServicio.tiempoInicioServicio = e.tiempoActual; // reinicio a efectos de espera
+        e.clienteEnServicio._tiempoRestante      = null;
+        e.clienteEnServicio.tiempoInicioServicio = e.tiempoActual; // reinicio del reloj de espera
         e.proximoEventoFinServicio = e.tiempoActual + restante;
         e.servidor.estado = "OCUPADO";
       } else if (e.cola.length > 0) {
@@ -97,6 +99,7 @@ window.modificador_descanso = {
         const duracion = sortearTiempo(e.tS, e.randomParams?.tS);
         e.proximoEventoFinServicio      = e.tiempoActual + duracion;
       } else {
+        // Sin clientes en PS ni en cola: servidor libre
         e.servidor.estado = "LIBRE";
       }
 

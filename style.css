@@ -344,6 +344,7 @@ button:disabled {
 .mod-badge-pill.abandono    { color: #ffc55a; background: rgba(74, 52,  0, 0.55); border: 1px solid #c8880a; }
 .mod-badge-pill.seguridad   { color: #6bb8ff; background: rgba(13, 42, 90, 0.55); border: 1px solid #2068cc; }
 .mod-badge-pill.prioridades { color: #c47dff; background: rgba(58, 13, 96, 0.55); border: 1px solid #7a30cc; }
+.mod-badge-pill.desvio      { color: #ff8a65; background: rgba(90, 30, 10, 0.55); border: 1px solid #cc4820; }
 
 /* Filas de estadísticas */
 .stat-row {
@@ -459,6 +460,16 @@ button:disabled {
 }
 #eventTable td.mod-prioridades                      { background: rgba(58,  13, 96, 0.18); }
 #eventBody tr:nth-child(even) td.mod-prioridades    { background: rgba(58,  13, 96, 0.28); }
+
+/* Desvío — naranja-rojo */
+#eventTable th.mod-desvio {
+  background: #5a1e0a;
+  color: #ff8a65;
+  border-bottom-color: #cc4820;
+  border-right-color: #6e250d;
+}
+#eventTable td.mod-desvio                           { background: rgba(90, 30, 10, 0.18); }
+#eventBody tr:nth-child(even) td.mod-desvio         { background: rgba(90, 30, 10, 0.28); }
 
 /* ─── VECTOR INICIAL DISPLAY ─────────────────────────────────── */
 .vector-display {
@@ -637,17 +648,20 @@ button:disabled {
 .vi-table th.mod-abandono    { background: #4a3400; color: #ffc55a; border-color: #5e4200; }
 .vi-table th.mod-seguridad   { background: #0d2a5a; color: #6bb8ff; border-color: #112f66; }
 .vi-table th.mod-prioridades { background: #3a0d60; color: #c47dff; border-color: #430f6e; }
+.vi-table th.mod-desvio      { background: #5a1e0a; color: #ff8a65; border-color: #6e250d; }
 
 /* Modificadores — celdas */
 .vi-table td.mod-descanso    { background: rgba(26, 74, 34, 0.10); }
 .vi-table td.mod-abandono    { background: rgba(74, 52,  0, 0.10); }
 .vi-table td.mod-seguridad   { background: rgba(13, 42, 90, 0.10); }
 .vi-table td.mod-prioridades { background: rgba(58, 13, 96, 0.10); }
+.vi-table td.mod-desvio      { background: rgba(90, 30, 10, 0.10); }
 
 .vi-table td.mod-descanso input,    .vi-table td.mod-descanso select    { background: rgba(26,74,34,0.08); border-color: rgba(45,154,69,0.4);   color: #2a6030; }
 .vi-table td.mod-abandono input,    .vi-table td.mod-abandono select    { background: rgba(74,52,0,0.08);  border-color: rgba(200,136,10,0.4);  color: #6b4a00; }
 .vi-table td.mod-seguridad input,   .vi-table td.mod-seguridad select   { background: rgba(13,42,90,0.08); border-color: rgba(32,104,204,0.4);  color: #0d3070; }
 .vi-table td.mod-prioridades input, .vi-table td.mod-prioridades select { background: rgba(58,13,96,0.08); border-color: rgba(122,48,204,0.4);  color: #4a1080; }
+.vi-table td.mod-desvio input,      .vi-table td.mod-desvio select      { background: rgba(90,30,10,0.08); border-color: rgba(204,72,32,0.4);   color: #7a2a0a; }
 
 /* ─── RESPONSIVE ────────────────────────────────────────────── */
 @media (max-width: 800px) {

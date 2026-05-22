@@ -1,10 +1,14 @@
 // ============================================================
 // ui.js — Interacción con el DOM
 // Info bar HTML de dos columnas + tabla de eventos coloreada.
+// Este archivo NUNCA modifica el estado de la simulación directamente;
+// solo lee el estado que emite el motor y lo renderiza.
 // ============================================================
 
 // ─── FORMATO ─────────────────────────────────────────────────
 
+// Convierte segundos en formato H:MM:SS para mostrar en la tabla.
+// null / undefined / Infinity se renderizan como "─" (sin evento programado).
 function formatHora(seg) {
   if (seg === null || seg === undefined || seg === Infinity) return "─";
   const h = Math.floor(seg / 3600);
@@ -14,6 +18,8 @@ function formatHora(seg) {
 }
 
 // ─── OBJETO UI (para uso desde modificadores) ────────────────
+// Expone utilidades a modificadores que necesiten imprimir mensajes
+// sin acceder directamente a las funciones internas de ui.js.
 const UI = {
   log:       (texto) => logLinea(texto),
   formatHora,
@@ -32,6 +38,8 @@ function logLinea(texto) {
 
 // ─── LIMPIEZA ─────────────────────────────────────────────────
 
+// Vacía el panel de información y la tabla de eventos.
+// Se llama al iniciar una nueva corrida para partir de cero.
 function limpiarConsola() {
   const infoBar = document.getElementById("infoBar");
   if (infoBar) infoBar.innerHTML = "";
@@ -42,16 +50,23 @@ function limpiarConsola() {
 }
 
 // ─── FLAGS DE MODIFICADORES ───────────────────────────────────
-
+// Guardan qué modificadores están activos en la corrida actual.
+// Se leen al iniciar y no cambian durante la simulación.
+// Controlan qué columnas extra se muestran en la tabla.
 let _abandonoActivo    = false;
 let _seguridadActiva   = false;
 let _descansoActivo    = false;
 let _prioridadesActivo = false;
+let _desvioActivo      = false;
 
+// Retorna true si al menos un modificador con columnas extra está activo.
+// Se usa para saber si hay que agregar el separador visual en la tabla.
 function _hayExtras() {
-  return _abandonoActivo || _seguridadActiva || _descansoActivo || _prioridadesActivo;
+  return _abandonoActivo || _seguridadActiva || _descansoActivo || _prioridadesActivo || _desvioActivo;
 }
 
+// Devuelve el tiempo de abandono más próximo entre los clientes en cola.
+// Si ninguno tiene tiempoLimite definido, retorna null.
 function proximoAbandono(estado) {
   const limites = estado.cola
     .filter(c => c.tiempoLimite !== undefined)
@@ -60,7 +75,8 @@ function proximoAbandono(estado) {
 }
 
 // ─── INFO BAR: PANEL IZQUIERDO ────────────────────────────────
-
+// Renderiza el resumen de parámetros y modificadores activos
+// en la columna izquierda del infoBar al iniciar la simulación.
 function renderInfoLeft(params) {
   const bar = document.getElementById("infoBar");
   bar.innerHTML = "";
@@ -78,6 +94,7 @@ function renderInfoLeft(params) {
   sep1.className = "info-sep";
   left.appendChild(sep1);
 
+  // Construir pares clave-valor de parámetros según modificadores activos
   const pares = [];
   if (_prioridadesActivo) {
     pares.push(["tLL_A", `${params.tLL}s`]);
@@ -101,6 +118,7 @@ function renderInfoLeft(params) {
     .join('<span class="param-sep">&nbsp; | &nbsp;</span>');
   left.appendChild(paramDiv);
 
+  // Badges de modificadores activos
   const modActivos = Object.entries(params.modificadoresActivos)
     .filter(([, v]) => v)
     .map(([k]) => k);
@@ -130,7 +148,9 @@ function renderInfoLeft(params) {
 }
 
 // ─── INFO BAR: PANEL DERECHO (estadísticas) ───────────────────
-
+// Renderiza el resumen de resultados al terminar la simulación.
+// Si el modificador desvío estaba activo, agrega la fila de desviados
+// y la relación procesados/desviados.
 function imprimirEstadisticas(estado) {
   const s = estado.stats;
   const promEspera = s.clientesAtendidos
@@ -149,11 +169,17 @@ function imprimirEstadisticas(estado) {
   sep.className = "info-sep";
   right.appendChild(sep);
 
-  [
+  const filas = [
     ["Clientes atendidos",   s.clientesAtendidos],
     ["Clientes abandonaron", s.clientesAbandonaron],
     ["Espera promedio",      `${promEspera}s`],
-  ].forEach(([label, value]) => {
+  ];
+  // clientesDesviados solo existe si el modificador desvío estuvo activo
+  if (s.clientesDesviados !== undefined) {
+    filas.push(["Clientes desviados", s.clientesDesviados]);
+    filas.push(["Procesados / Desviados", `${s.clientesAtendidos} / ${s.clientesDesviados}`]);
+  }
+  filas.forEach(([label, value]) => {
     const row = document.createElement("div");
     row.className = "stat-row";
     row.innerHTML = `<span class="stat-label">${label}</span><span class="stat-value">${value}</span>`;
@@ -163,6 +189,7 @@ function imprimirEstadisticas(estado) {
 
 // ─── HELPERS DE TABLA ─────────────────────────────────────────
 
+// Crea un <th> con texto y clase CSS de modificador opcional.
 function mkTh(label, mod) {
   const th = document.createElement("th");
   th.textContent = label;
@@ -170,6 +197,8 @@ function mkTh(label, mod) {
   return th;
 }
 
+// Crea un <td> con valor formateado y clase CSS de modificador opcional.
+// null / undefined se muestran como "─".
 function mkTd(valor, mod) {
   const td = document.createElement("td");
   td.textContent = (valor === null || valor === undefined) ? "─" : String(valor);
@@ -178,7 +207,10 @@ function mkTd(valor, mod) {
 }
 
 // ─── ENCABEZADO ───────────────────────────────────────────────
-
+// Construye la fila de encabezados de la tabla de eventos.
+// Las columnas base siempre aparecen; las columnas de modificadores
+// solo se agregan si el modificador está activo.
+// La primera columna extra lleva clase "sep-left" para el separador visual.
 function imprimirEncabezadoTabla() {
   const thead = document.getElementById("eventHead");
   if (!thead) return;
@@ -186,6 +218,7 @@ function imprimirEncabezadoTabla() {
 
   const tr = document.createElement("tr");
 
+  // Columnas base (siempre presentes)
   tr.append(
     mkTh("Evento"),
     mkTh("Hora"),
@@ -195,6 +228,8 @@ function imprimirEncabezadoTabla() {
     mkTh("Servidor"),
   );
 
+  // Columnas extra: la primera recibe "sep-left" para separador visual.
+  // sepPendiente se pone en false después del primer uso.
   let sepPendiente = _hayExtras();
   const thMod = (label, mod) => {
     const th = mkTh(label, mod);
@@ -206,18 +241,22 @@ function imprimirEncabezadoTabla() {
   if (_seguridadActiva)   tr.append(thMod("Llega al PS", "seguridad"),    mkTh("Zona Seg.", "seguridad"));
   if (_descansoActivo)    tr.append(thMod("Sal. Servidor", "descanso"),   mkTh("Reg. Servidor", "descanso"), mkTh("P.S.", "descanso"));
   if (_prioridadesActivo) tr.append(thMod("Próx. Leg. A", "prioridades"), mkTh("Próx. Leg. B", "prioridades"), mkTh("Cola A", "prioridades"), mkTh("Cola B", "prioridades"));
+  if (_desvioActivo)      tr.append(thMod("Desviados", "desvio"));
 
   thead.appendChild(tr);
 }
 
 // ─── FILA DE DATOS ────────────────────────────────────────────
-
+// Agrega una fila a la tabla por cada evento procesado.
+// Recibe { evento, hora, estado } emitido por el motor via Bus.
+// Misma lógica de columnas extras que imprimirEncabezadoTabla.
 function imprimirFila({ evento, hora, estado }) {
   const tbody = document.getElementById("eventBody");
   if (!tbody) return;
 
   const tr = document.createElement("tr");
 
+  // Celdas base
   tr.append(
     mkTd(evento),
     mkTd(formatHora(hora)),
@@ -228,6 +267,7 @@ function imprimirFila({ evento, hora, estado }) {
   );
 
   if (_hayExtras()) {
+    // La primera celda extra recibe "sep-left" igual que en el encabezado.
     let sepPendiente = true;
     const tdMod = (valor, mod) => {
       const td = mkTd(valor, mod);
@@ -255,22 +295,29 @@ function imprimirFila({ evento, hora, estado }) {
         mkTd(colaB, "prioridades"),
       );
     }
+    // Contador acumulado de desviados (variable auxiliar del Problema 3)
+    if (_desvioActivo) tr.append(tdMod(estado.stats.clientesDesviados ?? 0, "desvio"));
   }
 
   tbody.appendChild(tr);
+  // Auto-scroll para seguir el último evento
   const wrapper = document.getElementById("tableWrapper");
   if (wrapper) wrapper.scrollTop = wrapper.scrollHeight;
 }
 
 // ─── BOTONES ─────────────────────────────────────────────────
 
+// Habilita/deshabilita los botones Iniciar y Detener según el estado.
 function setBotones({ iniciando }) {
   document.getElementById("btnIniciar").disabled  =  iniciando;
   document.getElementById("btnDetener").disabled  = !iniciando;
 }
 
 // ─── LEER PARÁMETROS DE TIEMPO (fijo o aleatorio) ────────────
-
+// Lee el valor de un tiempo configurable teniendo en cuenta el switch
+// fijo/aleatorio. Retorna:
+//   { modo:"fijo", valor }            → tiempo determinístico
+//   { modo:"aleatorio", min, max }    → distribución U[min,max]
 function leerParamTiempo(key, idFijo) {
   const sw = document.querySelector(`.modo-switch[data-key="${key}"]`);
   const esAleatorio = sw?.checked ?? false;
@@ -288,7 +335,8 @@ function leerParamTiempo(key, idFijo) {
 }
 
 // ─── VALIDAR RANGOS ──────────────────────────────────────────
-
+// Verifica que todos los rangos aleatorios sean válidos (min < max > 0).
+// Retorna un array de mensajes de error; vacío si todo está bien.
 function validarRangos(randomParams) {
   const errores = [];
   const nombres = {
@@ -314,11 +362,13 @@ function validarRangos(randomParams) {
 }
 
 // ─── LEER PARÁMETROS ─────────────────────────────────────────
-
+// Lee todos los inputs del formulario y devuelve el objeto "params"
+// que se pasa a motorIniciar(). Retorna null si hay errores de validación.
 function leerParametros() {
 
   // Leer tLL (fijo o aleatorio)
   const cfgLL = leerParamTiempo("tLL", "tiempoLlegada");
+  // Para el header se usa el valor representativo (promedio en modo aleatorio)
   const tLL   = cfgLL.modo === "fijo" ? cfgLL.valor : (cfgLL.min + cfgLL.max) / 2;
 
   // Leer tS (fijo o aleatorio)
@@ -335,6 +385,7 @@ function leerParametros() {
   const modificadoresActivos = {};
   const paramsModificadores  = {};
 
+  // Leer estado y parámetro numérico de cada modificador
   document.querySelectorAll(".modificador-check").forEach(cb => {
     const nombre = cb.dataset.mod;
     modificadoresActivos[nombre] = cb.checked;
@@ -348,7 +399,8 @@ function leerParametros() {
     }
   });
 
-  // Construir randomParams para cada clave de tiempo
+  // Construir randomParams para cada clave de tiempo configurable.
+  // null significa "modo fijo" para esa clave.
   const randomParams = {};
 
   randomParams.tLL = cfgLL.modo === "aleatorio" ? cfgLL : null;
@@ -376,7 +428,7 @@ function leerParametros() {
     if (cfgSeg.modo === "aleatorio") paramsModificadores.seguridad = (cfgSeg.min + cfgSeg.max) / 2;
   }
 
-  // Validar rangos
+  // Validar que todos los rangos aleatorios sean coherentes
   const errores = validarRangos(randomParams);
   if (errores.length) {
     errores.forEach(e => logLinea(e));
@@ -394,10 +446,13 @@ function iniciarSimulacion() {
   const params = leerParametros();
   if (!params) return;
 
+  // Capturar qué modificadores están activos para que las funciones
+  // de renderizado sepan qué columnas extra mostrar.
   _abandonoActivo    = params.modificadoresActivos?.abandono    ?? false;
   _seguridadActiva   = params.modificadoresActivos?.seguridad   ?? false;
   _descansoActivo    = params.modificadoresActivos?.descanso    ?? false;
   _prioridadesActivo = params.modificadoresActivos?.prioridades ?? false;
+  _desvioActivo      = params.modificadoresActivos?.desvio      ?? false;
 
   limpiarConsola();
   renderInfoLeft(params);
@@ -412,7 +467,7 @@ function detenerSimulacion() {
 }
 
 // ─── TOGGLE FIJO/ALEATORIO ───────────────────────────────────
-
+// Muestra u oculta los campos correspondientes al modo del switch.
 function actualizarModoTiempo(key, checked) {
   const fijoDiv  = document.getElementById(`fijo_${key}`);
   const aleaDiv  = document.getElementById(`alea_${key}`);
@@ -428,9 +483,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (window.vectorInicial) window.vectorInicial.inicializarUI();
 
+  // Cada evento "fila" emitido por el motor agrega una fila a la tabla.
   Bus.on("fila", imprimirFila);
 
-  // Imprimir la fila V(0) como primer evento de la tabla
+  // Al iniciar, imprimir la fila V(0) como primer registro de la tabla.
   Bus.on("inicio", (estado) => {
     imprimirFila({ evento: "V(0) — INICIO", hora: 0, estado });
   });
@@ -445,6 +501,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setBotones({ iniciando: false });
   });
 
+  // Habilitar/deshabilitar inputs del modificador al marcar/desmarcar el checkbox
   document.querySelectorAll(".modificador-check").forEach(cb => {
     cb.addEventListener("change", () => {
       const nombre = cb.dataset.mod;
@@ -463,24 +520,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (nombre === "descanso") {
         const extra = document.getElementById("param_descanso_trabajo");
-        // Si el switch deltaT está en fijo, habilitar el campo fijo; si está en aleatorio, los rango
-        // La lógica ya se maneja via el switch, pero si el mod está desactivado todo se deshabilita
         if (extra) extra.disabled = !cb.checked;
       }
     });
   });
 
-  // Toggle fijo/aleatorio para cada switch de tiempo
+  // Cuando el usuario cambia un switch fijo/aleatorio, mostrar/ocultar campos
   document.querySelectorAll(".modo-switch").forEach(sw => {
     sw.addEventListener("change", () => {
       const key = sw.dataset.key;
       actualizarModoTiempo(key, sw.checked);
 
-      // Habilitar/deshabilitar los inputs correspondientes
       const fijoDiv = document.getElementById(`fijo_${key}`);
       const aleaDiv = document.getElementById(`alea_${key}`);
 
-      // Solo habilitar si el modificador padre está activo (o si es tLL/tS que siempre están activos)
+      // Solo habilitar los inputs si el modificador padre está activo
+      // (tLL y tS siempre están activos porque no tienen modificador padre)
       const modPadre = sw.closest(".mod-param");
       const modActivo = modPadre
         ? modPadre.classList.contains("activo")
