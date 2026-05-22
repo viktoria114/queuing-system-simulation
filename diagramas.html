@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagramas de Flujo — Simulador de Colas</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; color: #1e293b; }
+
+nav {
+  position: fixed; top: 0; left: 0; width: 240px; height: 100vh;
+  background: #0f172a; overflow-y: auto; padding: 1.5rem 1rem; z-index: 10;
+}
+nav .nav-title {
+  font-size: .68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .12em; color: #475569; margin-bottom: 1.2rem; padding-left: .4rem;
+}
+nav a {
+  display: block; color: #94a3b8; text-decoration: none; font-size: .78rem;
+  padding: .45rem .7rem; border-radius: 5px; margin-bottom: .15rem; line-height: 1.4;
+}
+nav a:hover { background: #1e293b; color: #e2e8f0; }
+nav .nav-section { font-size: .65rem; text-transform: uppercase; letter-spacing: .1em;
+  color: #334155; margin: 1.1rem 0 .4rem .4rem; font-weight: 700; }
+
+main { margin-left: 240px; padding: 2.5rem 3rem; }
+h1 { font-size: 1.35rem; font-weight: 700; margin-bottom: .4rem; color: #0f172a; }
+.subtitle { font-size: .82rem; color: #64748b; margin-bottom: 2.5rem; }
+
+section { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+.section-head { margin-bottom: 1rem; }
+.badge {
+  display: inline-block; font-size: .68rem; font-weight: 700;
+  padding: .2rem .55rem; border-radius: 12px; margin-bottom: .55rem; font-family: monospace;
+}
+.badge-motor { background: #dbeafe; color: #1d4ed8; }
+.badge-mod    { background: #dcfce7; color: #166534; }
+
+h2 { font-size: 1rem; font-weight: 700; border-left: 4px solid #3b82f6;
+  padding-left: .75rem; margin-bottom: .45rem; color: #0f172a; }
+h2 code { font-size: .9em; color: #2563eb; background: #eff6ff;
+  padding: .1rem .35rem; border-radius: 4px; }
+.desc { font-size: .81rem; color: #475569; line-height: 1.65;
+  padding-left: 1rem; border-left: 1px solid #e2e8f0; margin-left: .1rem; }
+.desc code { font-size: .9em; background: #f8fafc; border: 1px solid #e2e8f0;
+  padding: .05rem .3rem; border-radius: 3px; color: #0f172a; }
+
+.diagram-wrap {
+  background: white; border-radius: 10px; padding: 1.5rem 1rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07); overflow-x: auto; margin-top: .85rem;
+}
+.diagram-wrap + .diagram-wrap { margin-top: 1rem; }
+.diagram-sub-label {
+  font-size: .74rem; font-weight: 600; color: #64748b;
+  margin-bottom: .7rem; padding-bottom: .4rem; border-bottom: 1px solid #f1f5f9;
+}
+
+hr { border: none; border-top: 1px solid #e2e8f0; margin: 3rem 0; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-title">Diagramas de Flujo</div>
+
+  <div class="nav-section">Motor</div>
+  <a href="#loop">Loop principal — paso()</a>
+  <a href="#llegada">Evento: LLEGADA</a>
+  <a href="#fin-servicio">Evento: FIN DE SERVICIO</a>
+
+  <div class="nav-section">Modificadores</div>
+  <a href="#abandono">Abandono — onEvento_abandono</a>
+  <a href="#zs">Zona de Seguridad — onEvento_zs</a>
+  <a href="#servidor-salida">Descanso — SALIDA servidor</a>
+  <a href="#servidor-llegada">Descanso — LLEGADA servidor</a>
+  <a href="#llegada-b">Prioridades — LLEGADA B</a>
+</nav>
+
+<main>
+  <h1>Diagramas de Flujo — Simulador de Colas</h1>
+  <p class="subtitle">Lógica de cada evento del motor de simulación y sus modificadores.</p>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 1. LOOP PRINCIPAL                                          -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="loop">
+    <div class="section-head">
+      <span class="badge badge-motor">motor.js</span>
+      <h2>Loop principal — <code>paso()</code></h2>
+      <p class="desc">
+        Implementa el algoritmo <strong>next-event-time</strong>. En cada tick calcula el mínimo
+        entre tres candidatos: la próxima llegada, el próximo fin de servicio y el menor de los
+        eventos extra de modificadores. Si ese mínimo supera el horizonte de simulación, finaliza.
+        Si no, despacha el evento al handler correspondiente y se reprograma con
+        <code>setTimeout</code> para permitir que el navegador renderice entre pasos.
+        El fin de servicio se trata como <code>∞</code> mientras <code>_servidorPresente === false</code>
+        (servidor en descanso), congelándolo hasta que el servidor regrese.
+      </p>
+    </div>
+    <div class="diagram-wrap">
+<pre class="mermaid">
+flowchart TD
+    A([paso]) --> B{corriendo?}
+    B -->|No| STOP([Terminar])
+    B -->|Sí| H1[hooks onPaso]
+    H1 --> C1[llegada = proximoEventoLlegada]
+    C1 --> C2["finSvc = _servidorPresente ? proximoFinSvc : ∞"]
+    C2 --> C3[extra = min de _eventosExtra]
+    C3 --> F["proximo = min(llegada, finSvc, extra)"]
+    F --> G{proximo > tiempoTotal?}
+    G -->|Sí| FIN["_finalizar\nhooks onFin · Bus fin"]
+    G -->|No| EX{"extra ≤ llegada\ny extra ≤ finSvc?"}
+    EX -->|Sí| EVT["onEvento_nombre\neg. abandono, zs, servidor_salida, llegada_B"]
+    EX -->|No| LL{llegada ≤ finSvc?}
+    LL -->|Sí| PL[procesarLlegada]
+    LL -->|No| PFS[procesarFinServicio]
+    EVT --> T["setTimeout(paso, velocidad)"]
+    PL --> T
+    PFS --> T
+    T -.->|siguiente tick| A
+</pre>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 2. LLEGADA                                                 -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="llegada">
+    <div class="section-head">
+      <span class="badge badge-motor">motor.js</span>
+      <h2>Evento LLEGADA — <code>procesarLlegada()</code></h2>
+      <p class="desc">
+        Procesa la llegada de un nuevo cliente al sistema. Primero ejecuta los hooks
+        <code>onLlegada</code>: el modificador de <strong>prioridades</strong> marca al cliente
+        como Tipo A (<code>prioridad = 1</code>); el de <strong>seguridad</strong> puede devolver
+        <code>false</code> para redirigir al cliente a la Zona de Seguridad, cancelando el flujo
+        estándar de encolar/servir. Si ningún hook devuelve <code>false</code>, se aplica FCFS
+        con prioridades. Después de encolar, el hook <code>onLlegadaPost</code> de
+        <strong>abandono</strong> asigna el <code>tiempoLimite</code> si el cliente quedó en cola.
+      </p>
+    </div>
+    <div class="diagram-wrap">
+<pre class="mermaid">
+flowchart TD
+    A([LLEGADA]) --> B[tiempoActual = proximoEventoLlegada]
+    B --> B2["clienteIdCounter++ · crear cliente"]
+    B2 --> HK["hooks onLlegada\n— prioridades: tipo=A, prioridad=1\n— seguridad: puede interceptar"]
+    HK --> D{algún hook\nretornó false?}
+    D -->|Sí — interceptado| E[No encolar ni enviar al PS]
+    D -->|No| F{servidor == LIBRE?}
+    F -->|Sí| G[servidor = OCUPADO]
+    G --> G2[clienteEnServicio = cliente]
+    G2 --> G3["proximoFinSvc = ahora + sortear(tS)"]
+    F -->|No| H[cola.push cliente]
+    H --> H2[cola.sort desc por prioridad]
+    E --> I
+    G3 --> I
+    H2 --> I
+    I["proximoEventoLlegada = ahora + sortear(tLL)"] --> J["hooks onLlegadaPost\n— abandono: asigna tiempoLimite si en cola"]
+    J --> K["Bus.emitir LLEGADA #id"]
+    K --> Z([FIN])
+</pre>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 3. FIN DE SERVICIO                                         -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="fin-servicio">
+    <div class="section-head">
+      <span class="badge badge-motor">motor.js</span>
+      <h2>Evento FIN DE SERVICIO — <code>procesarFinServicio()</code></h2>
+      <p class="desc">
+        El cliente en el PS termina de ser atendido. Si <code>_servidorPresente === false</code>
+        (servidor en descanso), el evento se ignora hasta que el servidor regrese. De lo contrario:
+        se contabiliza el cliente atendido y el tiempo de espera. Si hay cola, el siguiente
+        cliente pasa al PS. El hook <code>onFinServicioPost</code> de <strong>seguridad</strong>
+        puede interceptar al siguiente cliente y enviarlo a la ZS antes del servicio; el de
+        <strong>abandono</strong> reagenda el próximo abandono con la cola actualizada.
+      </p>
+    </div>
+    <div class="diagram-wrap">
+<pre class="mermaid">
+flowchart TD
+    A([FIN SERVICIO]) --> GP{_servidorPresente?}
+    GP -->|false — congelado por descanso| RET([RETURN: ignorar])
+    GP -->|true| B[tiempoActual = proximoEventoFinServicio]
+    B --> B2[clienteAtendido = clienteEnServicio]
+    B2 --> HK1[hooks onFinServicio]
+    HK1 --> C[stats.clientesAtendidos++]
+    C --> C2["tiempoEsperaTotal += inicio - llegada"]
+    C2 --> D{cola.length > 0?}
+    D -->|Sí| E[siguiente = cola.shift]
+    E --> E2[siguiente.tiempoInicioServicio = ahora]
+    E2 --> E3[clienteEnServicio = siguiente]
+    E3 --> E4["proximoFinSvc = ahora + sortear(tS)"]
+    D -->|No| F[servidor = LIBRE]
+    F --> F2[clienteEnServicio = null]
+    F2 --> F3[proximoFinSvc = null]
+    E4 --> HK2
+    F3 --> HK2
+    HK2["hooks onFinServicioPost\n— abandono: reagenda próximo abandono\n— seguridad: envía siguiente a ZS si aplica"] --> K["Bus.emitir FIN SERVICIO #id"]
+    K --> Z([FIN])
+</pre>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 4. ABANDONO                                                -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="abandono">
+    <div class="section-head">
+      <span class="badge badge-mod">modificadores/abandono.js</span>
+      <h2>Evento ABANDONO — <code>onEvento_abandono</code></h2>
+      <p class="desc">
+        Se dispara cuando el tiempo de simulación alcanza el mínimo <code>tiempoLimite</code>
+        de los clientes en cola. Elimina todos los clientes cuyo
+        <code>tiempoLimite ≤ ahora</code> (pueden ser varios simultáneos) y reagenda el evento
+        con el próximo límite de los restantes. El <code>tiempoLimite</code> de cada cliente
+        se asigna en el hook <code>onLlegadaPost</code> sumando la paciencia sorteada
+        (<code>SC</code>) a su <code>tiempoLlegada</code>.
+      </p>
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="diagram-sub-label">Evento principal: onEvento_abandono</div>
+<pre class="mermaid">
+flowchart TD
+    A([ABANDONO]) --> B[tiempoActual = _eventosExtra.abandono]
+    B --> B2[_eventosExtra.abandono = null]
+    B2 --> C["buscar en cola: clientes con tiempoLimite ≤ ahora"]
+    C --> D{hay clientes\nque abandonan?}
+    D -->|No| G
+    D -->|Sí| E["para cada cliente abandonante:\n· cola.filter → eliminar\n· stats.clientesAbandonaron++\n· Bus.emitir ABANDONO #id"]
+    E --> G
+    G["agendarProximoAbandono\n_eventosExtra.abandono = min tiempoLimite restante"] --> Z([FIN])
+</pre>
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="diagram-sub-label">Hook onLlegadaPost: asignar tiempoLimite al cliente</div>
+<pre class="mermaid">
+flowchart TD
+    A([onLlegadaPost — abandono]) --> B{cliente está\nen la cola?}
+    B -->|No — fue al PS| Z([FIN: sin límite])
+    B -->|Sí| C["paciencia = sortear(SC, randomParams.abandono)"]
+    C --> D["cliente.tiempoLimite = tiempoLlegada + paciencia"]
+    D --> E[agendarProximoAbandono: actualizar _eventosExtra.abandono]
+    E --> Z2([FIN])
+</pre>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 5. ZONA DE SEGURIDAD                                       -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="zs">
+    <div class="section-head">
+      <span class="badge badge-mod">modificadores/seguridad.js</span>
+      <h2>Evento ZONA DE SEGURIDAD — <code>onEvento_zs</code></h2>
+      <p class="desc">
+        El cliente termina de cruzar la ZS y entra al PS para recibir el servicio. La
+        interceptación ocurre en el hook <code>onLlegada</code>: si la ZS está libre y el PS
+        está libre, el cliente se desvía a la ZS (retornando <code>false</code> para cancelar
+        el flujo normal). Si la ZS está ocupada y el PS libre, el PS se marca como
+        <code>OCUPADO</code> para que el cliente recién llegado vaya a la cola, reservando el
+        PS para quien está cruzando. El hook <code>onFinServicioPost</code> encadena el
+        siguiente cruce cuando termina un servicio.
+      </p>
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="diagram-sub-label">Evento principal: onEvento_zs (fin de cruce)</div>
+<pre class="mermaid">
+flowchart TD
+    A([EVENTO ZS]) --> B[tiempoActual = _eventosExtra.zs]
+    B --> B2[_eventosExtra.zs = null]
+    B2 --> C[cliente = clienteEnZona]
+    C --> C2[zonaSeguridad = LIBRE · clienteEnZona = null]
+    C2 --> D[cliente.tiempoInicioServicio = ahora]
+    D --> D2[clienteEnServicio = cliente · servidor = OCUPADO]
+    D2 --> D3["proximoFinSvc = ahora + sortear(tS)"]
+    D3 --> E["Bus.emitir LLEGA AL PS #id"]
+    E --> Z([FIN])
+</pre>
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="diagram-sub-label">Hook onLlegada: interceptar cliente hacia la ZS</div>
+<pre class="mermaid">
+flowchart TD
+    A([onLlegada — seguridad]) --> B{"zonaSeguridad == LIBRE\ny servidor == LIBRE?"}
+    B -->|Sí| C[zonaSeguridad = OCUPADO · clienteEnZona = cliente]
+    C --> C2["_eventosExtra.zs = ahora + sortear(tCruce)"]
+    C2 --> C3[return false — cancelar flujo normal]
+    C3 --> ZA([FIN: interceptado])
+    B -->|No| D{"zonaSeguridad == OCUPADO\ny servidor == LIBRE?"}
+    D -->|Sí| E[servidor = OCUPADO reservar PS]
+    E --> ZB([FIN: continúa procesarLlegada])
+    D -->|No — servidor ocupado| ZB
+</pre>
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="diagram-sub-label">Hook onFinServicioPost: encadenar siguiente cruce</div>
+<pre class="mermaid">
+flowchart TD
+    A([onFinServicioPost — seguridad]) --> B{hay nuevo cliente\nen PS tras pop de cola?}
+    B -->|No — cola estaba vacía| Z([FIN: sin acción])
+    B -->|Sí| C[sacar cliente del PS temporalmente]
+    C --> C2[proximoFinSvc = null · servidor = LIBRE · clienteEnServicio = null]
+    C2 --> D[zonaSeguridad = OCUPADO · clienteEnZona = cliente]
+    D --> D2["_eventosExtra.zs = ahora + sortear(tCruce)"]
+    D2 --> Z2([FIN: cliente va a cruzar ZS])
+</pre>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 6. DESCANSO — SALIDA                                       -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="servidor-salida">
+    <div class="section-head">
+      <span class="badge badge-mod">modificadores/descanso.js</span>
+      <h2>Evento SALIDA SERVIDOR — <code>onEvento_servidor_salida</code></h2>
+      <p class="desc">
+        El servidor inicia su período de descanso de duración <code>ΔD</code>. Se activan los
+        flags <code>_servidorPresente = false</code> y <code>_servidorAusente = true</code>,
+        lo que hace que el bucle principal ignore el fin de servicio mientras el servidor está
+        ausente. Si hay un cliente siendo atendido, su tiempo de servicio restante se guarda en
+        <code>_tiempoRestante</code> y el cliente permanece en el PS congelado.
+      </p>
+    </div>
+    <div class="diagram-wrap">
+<pre class="mermaid">
+flowchart TD
+    A([SALIDA SERVIDOR]) --> B[tiempoActual = _eventosExtra.servidor_salida]
+    B --> B2[_eventosExtra.servidor_salida = null]
+    B2 --> C[_servidorPresente = false · _servidorAusente = true]
+    C --> D["sortear ΔD\n_eventosExtra.servidor_llegada = ahora + ΔD"]
+    D --> E{clienteEnServicio\n!= null?}
+    E -->|Sí — hay cliente en PS| F["_tiempoRestante = proximoFinSvc - ahora\n(PS queda congelado)"]
+    E -->|No — PS vacío| G[sin acción extra]
+    F --> H["Bus.emitir SALIDA SERVIDOR"]
+    G --> H
+    H --> Z([FIN])
+</pre>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 7. DESCANSO — LLEGADA                                      -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="servidor-llegada">
+    <div class="section-head">
+      <span class="badge badge-mod">modificadores/descanso.js</span>
+      <h2>Evento LLEGADA SERVIDOR — <code>onEvento_servidor_llegada</code></h2>
+      <p class="desc">
+        El servidor regresa del descanso. Se restauran los flags de presencia y se agenda el
+        próximo ciclo de trabajo (<code>ΔT</code>). Si había un cliente congelado en el PS,
+        su servicio se reanuda con el tiempo restante guardado. Si no hay cliente en PS pero
+        hay cola, se atiende al siguiente. Si no hay nadie, el PS queda libre.
+      </p>
+    </div>
+    <div class="diagram-wrap">
+<pre class="mermaid">
+flowchart TD
+    A([LLEGADA SERVIDOR]) --> B[tiempoActual = _eventosExtra.servidor_llegada]
+    B --> B2[_eventosExtra.servidor_llegada = null]
+    B2 --> C[_servidorPresente = true · _servidorAusente = false]
+    C --> D["sortear ΔT\n_eventosExtra.servidor_salida = ahora + ΔT"]
+    D --> E{clienteEnServicio\n!= null?}
+    E -->|Sí — cliente congelado| F[reanudar servicio]
+    F --> F2[proximoFinSvc = ahora + _tiempoRestante]
+    F2 --> F3[cliente.tiempoInicioServicio = ahora · servidor = OCUPADO]
+    E -->|No| G{cola.length > 0?}
+    G -->|Sí| H[siguiente = cola.shift]
+    H --> H2[siguiente.tiempoInicioServicio = ahora · servidor = OCUPADO]
+    H2 --> H3["proximoFinSvc = ahora + sortear(tS)"]
+    G -->|No| I[servidor = LIBRE]
+    F3 --> J["Bus.emitir LLEGADA SERVIDOR"]
+    H3 --> J
+    I --> J
+    J --> Z([FIN])
+</pre>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 8. LLEGADA B — PRIORIDADES                                 -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="llegada-b">
+    <div class="section-head">
+      <span class="badge badge-mod">modificadores/prioridades.js</span>
+      <h2>Evento LLEGADA B — <code>onEvento_llegada_B</code></h2>
+      <p class="desc">
+        Canal independiente de llegadas para clientes Tipo B (<code>prioridad = 0</code>).
+        Replica la lógica de <code>procesarLlegada()</code> sin pasar por los hooks de llegada
+        (no necesita interacción con otros modificadores). Al ordenar la cola por prioridad
+        descendente, los Tipo A (<code>prioridad = 1</code>) siempre quedan delante de los B.
+        El próximo evento <code>llegada_B</code> se reagenda con el intervalo <code>tLL_B</code>
+        configurado.
+      </p>
+    </div>
+    <div class="diagram-wrap">
+<pre class="mermaid">
+flowchart TD
+    A([LLEGADA B]) --> B[tiempoActual = _eventosExtra.llegada_B]
+    B --> B2["clienteIdCounter++ · crear cliente B {prioridad: 0}"]
+    B2 --> D{servidor == LIBRE?}
+    D -->|Sí| E[servidor = OCUPADO]
+    E --> E2[clienteEnServicio = cliente]
+    E2 --> E3[proximoFinSvc = ahora + tS]
+    D -->|No| F[cola.push cliente B]
+    F --> F2[cola.sort desc prioridad]
+    F2 --> F3[A quedan delante de B]
+    E3 --> G
+    F3 --> G
+    G["_eventosExtra.llegada_B = ahora + tLL_B"] --> H["Bus.emitir LLEGADA B #id"]
+    H --> Z([FIN])
+</pre>
+    </div>
+  </section>
+
+</main>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    flowchart: { curve: 'basis', padding: 20, useMaxWidth: true },
+    themeVariables: {
+      primaryColor: '#dbeafe',
+      primaryTextColor: '#1e3a5f',
+      primaryBorderColor: '#93c5fd',
+      lineColor: '#64748b',
+      secondaryColor: '#dcfce7',
+      tertiaryColor: '#fef9c3',
+      edgeLabelBackground: '#f8fafc',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontSize: '13px'
+    }
+  });
+</script>
+
+</body>
+</html>

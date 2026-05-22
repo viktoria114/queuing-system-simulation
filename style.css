@@ -663,6 +663,29 @@ button:disabled {
 .vi-table td.mod-prioridades input, .vi-table td.mod-prioridades select { background: rgba(58,13,96,0.08); border-color: rgba(122,48,204,0.4);  color: #4a1080; }
 .vi-table td.mod-desvio input,      .vi-table td.mod-desvio select      { background: rgba(90,30,10,0.08); border-color: rgba(204,72,32,0.4);   color: #7a2a0a; }
 
+/* ─── BOTÓN FLOTANTE DIAGRAMAS ──────────────────────────────── */
+.btn-diagramas {
+  position: fixed;
+  bottom: 24px;
+  right: 28px;
+  background: linear-gradient(135deg, #FFB6E1 0%, #DDA0DD 100%);
+  color: white;
+  font-weight: 700;
+  font-size: 0.9em;
+  text-decoration: none;
+  padding: 11px 20px;
+  border-radius: 25px;
+  box-shadow: 0 4px 16px rgba(221, 160, 221, 0.5);
+  transition: all 0.25s ease;
+  z-index: 500;
+  white-space: nowrap;
+}
+
+.btn-diagramas:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 22px rgba(221, 160, 221, 0.7);
+}
+
 /* ─── RESPONSIVE ────────────────────────────────────────────── */
 @media (max-width: 800px) {
   .layout {
