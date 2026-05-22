@@ -252,37 +252,402 @@ button:disabled {
   box-shadow: none;
 }
 
-/* ─── CONSOLA (columna derecha) — tu estilo oscuro ──────────── */
-#consoleBox {
+/* ─── OUTPUT PANEL (columna derecha) ────────────────────────── */
+#outputPanel {
   flex: 1;
   min-width: 0;
-  height: calc(100vh - 40px);
-  max-height: 800px;
-  border: 1px solid #ccc;
-  padding: 16px;
-  overflow-x: auto;
-  overflow-y: auto;
+  height: 965px;
+  max-height: 965px;
+  display: flex;
+  flex-direction: column;
   background: #111;
-  color: rgb(253, 234, 255);
-  font-family: monospace;
-  font-size: 13px;
   border-radius: 16px;
-  text-align: center;
-  line-height: 1.7;
+  overflow: hidden;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 
-/* Cada fila de la consola no rompe línea para mantener el alineado de tabla */
-#consoleBox div {
+/* ─── INFO BAR (parámetros izq | estadísticas der) ──────────── */
+#infoBar {
+  display: flex;
+  align-items: stretch;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+#infoLeft, #infoRight {
+  flex: 1;
+  padding: 14px 18px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #aaa;
+  overflow-y: auto;
+  max-height: 190px;
+}
+
+#infoLeft  { border-right: 1px solid #2a2a2a; }
+
+#infoLeft::-webkit-scrollbar, #infoRight::-webkit-scrollbar { width: 4px; }
+#infoLeft::-webkit-scrollbar-track, #infoRight::-webkit-scrollbar-track { background: transparent; }
+#infoLeft::-webkit-scrollbar-thumb, #infoRight::-webkit-scrollbar-thumb { background: #442244; border-radius: 3px; }
+
+/* Título de sección */
+.info-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fde8ff;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+/* Separador horizontal */
+.info-sep {
+  border: none;
+  border-top: 1px solid #2a2a2a;
+  margin: 8px 0;
+}
+
+/* Fila de parámetros: clave + valor destacado */
+.info-params {
+  color: #777;
+  line-height: 2;
+  margin-bottom: 10px;
+}
+.info-params b { color: #fde8ff; font-weight: 600; }
+.param-sep     { color: #333; }
+
+/* Etiqueta pequeña sobre los badges */
+.info-label {
+  font-size: 10px;
+  color: #555;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 7px;
+  margin-top: 6px;
+}
+
+/* Contenedor de badges de modificadores */
+.mod-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.mod-badge-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
-#consoleBox::-webkit-scrollbar       { width: 6px; height: 6px; }
-#consoleBox::-webkit-scrollbar-track { background: transparent; }
-#consoleBox::-webkit-scrollbar-thumb {
-  background: #442244;
-  border-radius: 3px;
+.mod-badge-pill.descanso    { color: #7fefaa; background: rgba(26, 74, 34, 0.55); border: 1px solid #2d9a45; }
+.mod-badge-pill.abandono    { color: #ffc55a; background: rgba(74, 52,  0, 0.55); border: 1px solid #c8880a; }
+.mod-badge-pill.seguridad   { color: #6bb8ff; background: rgba(13, 42, 90, 0.55); border: 1px solid #2068cc; }
+.mod-badge-pill.prioridades { color: #c47dff; background: rgba(58, 13, 96, 0.55); border: 1px solid #7a30cc; }
+
+/* Filas de estadísticas */
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  line-height: 1.7;
 }
+.stat-label { color: #888; }
+.stat-value { color: #fde8ff; font-weight: 700; }
+
+/* ─── TABLE WRAPPER (scroll interno) ────────────────────────── */
+#tableWrapper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+#tableWrapper::-webkit-scrollbar       { width: 6px; height: 6px; }
+#tableWrapper::-webkit-scrollbar-track { background: transparent; }
+#tableWrapper::-webkit-scrollbar-thumb { background: #442244; border-radius: 3px; }
+
+/* ─── TABLA DE EVENTOS ──────────────────────────────────────── */
+#eventTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: monospace;
+  font-size: 12px;
+  color: #eee;
+}
+
+/* Encabezados: sticky + fondo oscuro base */
+#eventTable th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 9px 12px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  background: #222;
+  color: #ccc;
+  border-right: 1px solid #333;
+  border-bottom: 2px solid #444;
+  min-width: 90px;
+}
+
+#eventTable th:first-child { min-width: 140px; text-align: left; padding-left: 14px; }
+
+/* Celdas de datos */
+#eventTable td {
+  padding: 5px 12px;
+  text-align: center;
+  white-space: nowrap;
+  border-right: 1px solid #1e1e1e;
+  border-bottom: 1px solid #1a1a1a;
+  background: #111;
+}
+
+#eventTable td:first-child { text-align: left; padding-left: 14px; }
+
+/* Filas alternas ligeramente más claras */
+#eventBody tr:nth-child(even) td { background: #161616; }
+
+/* ─── SEPARADOR VISUAL base → modificadores ─────────────────── */
+#eventTable th.sep-left,
+#eventTable td.sep-left {
+  border-left: 2px solid #555;
+}
+
+/* ─── COLORES POR MODIFICADOR ───────────────────────────────── */
+
+/* Descanso — verde */
+#eventTable th.mod-descanso {
+  background: #1a4a22;
+  color: #7fefaa;
+  border-bottom-color: #2d9a45;
+  border-right-color: #245c2e;
+}
+#eventTable td.mod-descanso                         { background: rgba(26,  74, 34, 0.18); }
+#eventBody tr:nth-child(even) td.mod-descanso       { background: rgba(26,  74, 34, 0.28); }
+
+/* Abandono — ámbar */
+#eventTable th.mod-abandono {
+  background: #4a3400;
+  color: #ffc55a;
+  border-bottom-color: #c8880a;
+  border-right-color: #5e4200;
+}
+#eventTable td.mod-abandono                         { background: rgba(74,  52,  0, 0.18); }
+#eventBody tr:nth-child(even) td.mod-abandono       { background: rgba(74,  52,  0, 0.28); }
+
+/* Seguridad — azul */
+#eventTable th.mod-seguridad {
+  background: #0d2a5a;
+  color: #6bb8ff;
+  border-bottom-color: #2068cc;
+  border-right-color: #112f66;
+}
+#eventTable td.mod-seguridad                        { background: rgba(13,  42, 90, 0.20); }
+#eventBody tr:nth-child(even) td.mod-seguridad      { background: rgba(13,  42, 90, 0.30); }
+
+/* Prioridades — violeta */
+#eventTable th.mod-prioridades {
+  background: #3a0d60;
+  color: #c47dff;
+  border-bottom-color: #7a30cc;
+  border-right-color: #430f6e;
+}
+#eventTable td.mod-prioridades                      { background: rgba(58,  13, 96, 0.18); }
+#eventBody tr:nth-child(even) td.mod-prioridades    { background: rgba(58,  13, 96, 0.28); }
+
+/* ─── VECTOR INICIAL DISPLAY ─────────────────────────────────── */
+.vector-display {
+  background: #fde8ff;
+  border: 1px solid #e8c8e8;
+  border-radius: 10px;
+  padding: 10px 16px 12px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.vector-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #DDA0DD;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.vector-values {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+  color: #9b6fa0;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.vector-values b { color: #DDA0DD; }
+.vi-sep { color: #d8b8e0; }
+
+.vector-display > button {
+  width: 100%;
+  padding: 10px 20px;
+  font-size: 0.9em;
+}
+
+/* ─── MODAL ──────────────────────────────────────────────────── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+  justify-content: center;
+  align-items: center;
+}
+
+.modal-overlay.activo { display: flex; }
+
+.modal-box {
+  background: #FFF8E7;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: 90vw;
+  max-width: 960px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid #f0c8e8;
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: #DDA0DD;
+}
+
+.modal-close-btn {
+  background: transparent;
+  color: #bba0cc;
+  border: 1.5px solid #e8c8e8;
+  box-shadow: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 1em;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.modal-close-btn:hover {
+  background: #fde8ff;
+  color: #DDA0DD;
+  transform: none;
+  box-shadow: none;
+}
+
+.modal-scroll-wrap {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 10px;
+  padding: 14px 24px;
+  border-top: 1px solid #f0c8e8;
+  flex-shrink: 0;
+}
+
+.modal-footer button { flex: 1; }
+
+/* ─── TABLA VECTOR INICIAL (dentro del modal) ─────────────────── */
+.vi-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 100%;
+  font-size: 13px;
+}
+
+.vi-table th {
+  background: #f5e8ff;
+  color: #9b6fa0;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 8px 14px;
+  text-align: center;
+  border: 1px solid #e8c8e8;
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+.vi-table th small {
+  display: block;
+  font-weight: 400;
+  font-size: 9px;
+  letter-spacing: normal;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
+.vi-table td {
+  background: #fff;
+  padding: 8px 10px;
+  border: 1px solid #f0e0f0;
+  text-align: center;
+}
+
+.vi-table td input[type="number"],
+.vi-table td select {
+  width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid #e0c0e0;
+  border-radius: 6px;
+  font-size: 0.9em;
+  background: #fdf5ff;
+  color: #555;
+  text-align: center;
+}
+
+.vi-table td select { cursor: pointer; }
+
+.vi-table th.sep-left,
+.vi-table td.sep-left { border-left: 2px solid #DDA0DD; }
+
+/* Modificadores — encabezados */
+.vi-table th.mod-descanso    { background: #1a4a22; color: #7fefaa; border-color: #245c2e; }
+.vi-table th.mod-abandono    { background: #4a3400; color: #ffc55a; border-color: #5e4200; }
+.vi-table th.mod-seguridad   { background: #0d2a5a; color: #6bb8ff; border-color: #112f66; }
+.vi-table th.mod-prioridades { background: #3a0d60; color: #c47dff; border-color: #430f6e; }
+
+/* Modificadores — celdas */
+.vi-table td.mod-descanso    { background: rgba(26, 74, 34, 0.10); }
+.vi-table td.mod-abandono    { background: rgba(74, 52,  0, 0.10); }
+.vi-table td.mod-seguridad   { background: rgba(13, 42, 90, 0.10); }
+.vi-table td.mod-prioridades { background: rgba(58, 13, 96, 0.10); }
+
+.vi-table td.mod-descanso input,    .vi-table td.mod-descanso select    { background: rgba(26,74,34,0.08); border-color: rgba(45,154,69,0.4);   color: #2a6030; }
+.vi-table td.mod-abandono input,    .vi-table td.mod-abandono select    { background: rgba(74,52,0,0.08);  border-color: rgba(200,136,10,0.4);  color: #6b4a00; }
+.vi-table td.mod-seguridad input,   .vi-table td.mod-seguridad select   { background: rgba(13,42,90,0.08); border-color: rgba(32,104,204,0.4);  color: #0d3070; }
+.vi-table td.mod-prioridades input, .vi-table td.mod-prioridades select { background: rgba(58,13,96,0.08); border-color: rgba(122,48,204,0.4);  color: #4a1080; }
 
 /* ─── RESPONSIVE ────────────────────────────────────────────── */
 @media (max-width: 800px) {
@@ -296,7 +661,7 @@ button:disabled {
     max-width: 500px;
   }
 
-  #consoleBox {
+  #outputPanel {
     width: 100%;
     height: 400px;
   }

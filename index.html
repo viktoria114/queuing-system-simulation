@@ -12,76 +12,21 @@
 
     <!-- COLUMNA IZQUIERDA: config -->
     <div class="container">
+
       <h1>Teoría de Colas</h1>
 
-      <!-- ══ VECTOR INICIAL V(0) ══════════════════════════════════ -->
-      <div class="vi-box">
-        <div class="vi-titulo">Vector Inicial V(0)</div>
-
-        <!-- Siempre visibles -->
-        <div class="vi-fila">
-          <label class="vi-etiqueta">Qa — Personas en cola</label>
-          <input type="number" id="vi_Qa" value="0" min="0" />
+      <!-- ─── VECTOR INICIAL ─────────────────────────────────── -->
+      <div class="vector-display">
+        <span class="vector-title">Vector Inicial</span>
+        <div class="vector-values">
+          <span>Hora:&nbsp;<b id="vi_disp_hora">0</b></span>
+          <span class="vi-sep">|</span>
+          <span>Cola:&nbsp;<b id="vi_disp_cola">0</b></span>
+          <span class="vi-sep">|</span>
+          <span>Servidor:&nbsp;<b id="vi_disp_servidor">LIBRE</b></span>
         </div>
-
-        <div class="vi-fila">
-          <label class="vi-etiqueta">PS — Estado del servidor</label>
-          <select id="vi_PS">
-            <option value="LIBRE">LIBRE</option>
-            <option value="OCUPADO">OCUPADO</option>
-          </select>
-        </div>
-
-        <div class="vi-fila" id="vi_row_Ts" style="display:none">
-          <label class="vi-etiqueta">Ts — Tiempo ya servido (s)</label>
-          <input type="number" id="vi_Ts" value="0" min="0" />
-        </div>
-
-        <!-- Abandono (condicional) -->
-        <div class="vi-fila" id="vi_row_abandono" style="display:none">
-          <label class="vi-etiqueta">Te — Tiempo esperando en cola (s)</label>
-          <input type="number" id="vi_Te" value="0" min="0" />
-        </div>
-
-        <!-- Descanso (condicional) -->
-        <div id="vi_row_descanso" style="display:none">
-          <div class="vi-separador">Descanso</div>
-          <div class="vi-fila">
-            <label class="vi-etiqueta">S — Estado del servidor</label>
-            <select id="vi_S">
-              <option value="trabajando">Trabajando</option>
-              <option value="descansando">Descansando</option>
-            </select>
-          </div>
-          <div class="vi-fila">
-            <label class="vi-etiqueta">Ttd — Tiempo en ese estado (s)</label>
-            <input type="number" id="vi_Ttd" value="0" min="0" />
-          </div>
-        </div>
-
-        <!-- Prioridades (condicional) -->
-        <div class="vi-fila" id="vi_row_prioridades" style="display:none">
-          <label class="vi-etiqueta">Qb — Personas en cola B</label>
-          <input type="number" id="vi_Qb" value="0" min="0" />
-        </div>
-
-        <!-- Seguridad (condicional) -->
-        <div id="vi_row_seguridad" style="display:none">
-          <div class="vi-separador">Zona de Seguridad</div>
-          <div class="vi-fila">
-            <label class="vi-etiqueta">Zs — Estado de la zona</label>
-            <select id="vi_Zs">
-              <option value="LIBRE">LIBRE</option>
-              <option value="OCUPADO">OCUPADO</option>
-            </select>
-          </div>
-          <div class="vi-fila" id="vi_row_Tz" style="display:none">
-            <label class="vi-etiqueta">Tz — Tiempo en la zona (s)</label>
-            <input type="number" id="vi_Tz" value="0" min="0" />
-          </div>
-        </div>
+        <button onclick="abrirModalVector()">✏ Editar Vector Inicial</button>
       </div>
-      <!-- ════════════════════════════════════════════════════════ -->
 
       <p><strong>Parámetros de Simulación</strong></p>
 
@@ -269,9 +214,34 @@
       </div>
     </div>
 
-    <!-- COLUMNA DERECHA: consola -->
-    <div id="consoleBox"></div>
+    <!-- COLUMNA DERECHA: panel de salida -->
+    <div id="outputPanel">
+      <div id="infoBar"></div>
+      <div id="tableWrapper">
+        <table id="eventTable">
+          <thead id="eventHead"></thead>
+          <tbody id="eventBody"></tbody>
+        </table>
+      </div>
+    </div>
 
+  </div>
+
+  <!-- ─── MODAL VECTOR INICIAL ────────────────────────────── -->
+  <div class="modal-overlay" id="modalVector">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title">Editar Vector Inicial V(0)</span>
+        <button class="modal-close-btn" onclick="cerrarModalVector()">✕</button>
+      </div>
+      <div class="modal-scroll-wrap">
+        <div id="vectorModalContent"></div>
+      </div>
+      <div class="modal-footer">
+        <button onclick="guardarVectorInicial()">✓ Guardar</button>
+        <button class="btn-limpiar" onclick="resetVectorInicial()">⌫ Restablecer</button>
+      </div>
+    </div>
   </div>
 
   <!-- Orden obligatorio: motor → modificadores → vectorInicial → ui -->

@@ -1,75 +1,55 @@
 // ============================================================
 // ui.js — Interacción con el DOM
+// Info bar HTML de dos columnas + tabla de eventos coloreada.
 // ============================================================
 
 // ─── FORMATO ─────────────────────────────────────────────────
 
 function formatHora(seg) {
-  if (seg === null || seg === undefined || seg === Infinity) return "─────";
+  if (seg === null || seg === undefined || seg === Infinity) return "─";
   const h = Math.floor(seg / 3600);
   const m = Math.floor((seg % 3600) / 60);
   const s = Math.floor(seg % 60);
   return `${h}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
 }
 
-function pad(texto, largo, relleno = " ") {
-  return String(texto ?? "").padEnd(largo, relleno);
-}
-
-function padPuntos(texto, largo) {
-  const str = String(texto ?? "");
-  if (str.length >= largo - 1) return str.padEnd(largo, " ");
-  return str + " " + ".".repeat(largo - str.length - 2) + " ";
-}
-
+// ─── OBJETO UI (para uso desde modificadores) ────────────────
 const UI = {
   log:       (texto) => logLinea(texto),
-  pad,
-  padPuntos,
   formatHora,
 };
 
-// ─── CONSOLA ─────────────────────────────────────────────────
-
+// ─── LOG DE EMERGENCIA (errores / mensajes puntuales) ─────────
+// Escribe en #infoLeft si existe, o directo en #infoBar.
 function logLinea(texto) {
-  const box = document.getElementById("consoleBox");
-  if (!box) return;
+  const target = document.getElementById("infoLeft") || document.getElementById("infoBar");
+  if (!target) return;
   const div = document.createElement("div");
   div.textContent = texto;
-  box.appendChild(div);
-  box.scrollTop = box.scrollHeight;
+  target.appendChild(div);
+  target.scrollTop = target.scrollHeight;
 }
+
+// ─── LIMPIEZA ─────────────────────────────────────────────────
 
 function limpiarConsola() {
-  const box = document.getElementById("consoleBox");
-  if (box) box.innerHTML = "";
+  const infoBar = document.getElementById("infoBar");
+  if (infoBar) infoBar.innerHTML = "";
+  const tbody = document.getElementById("eventBody");
+  if (tbody) tbody.innerHTML = "";
+  const thead = document.getElementById("eventHead");
+  if (thead) thead.innerHTML = "";
 }
 
-// ─── COLUMNAS ────────────────────────────────────────────────
+// ─── FLAGS DE MODIFICADORES ───────────────────────────────────
 
 let _abandonoActivo    = false;
 let _seguridadActiva   = false;
 let _descansoActivo    = false;
 let _prioridadesActivo = false;
 
-const SEP = " .... ";
-
 function _hayExtras() {
   return _abandonoActivo || _seguridadActiva || _descansoActivo || _prioridadesActivo;
-}
-
-function getCOL() {
-  const cols = { evento: 26, hora: 12, llegada: 16, fin: 16, cola: 8, servidor: 10 };
-  if (_abandonoActivo)    cols.abandono  = 16;
-  if (_seguridadActiva)   { cols.zsLlegada = 16; cols.zsEstado = 12; }
-  if (_descansoActivo)    { cols.salida = 16; cols.regreso = 16; cols.ps = 12; }
-  if (_prioridadesActivo) { cols.llegadaA = 16; cols.llegadaB = 16; cols.colaA = 8; cols.colaB = 8; }
-  return cols;
-}
-
-function getAncho() {
-  const base = Object.values(getCOL()).reduce((a, b) => a + b, 0);
-  return base + (_hayExtras() ? SEP.length : 0);
 }
 
 function proximoAbandono(estado) {
@@ -79,87 +59,77 @@ function proximoAbandono(estado) {
   return limites.length ? Math.min(...limites) : null;
 }
 
-function imprimirEncabezadoTabla() {
-  const COL   = getCOL();
-  const ancho = getAncho();
+// ─── INFO BAR: PANEL IZQUIERDO ────────────────────────────────
 
-  let cabecera =
-    pad("| Evento |",        COL.evento)   +
-    pad("| Hora |",          COL.hora)     +
-    pad("| Prox.Llegada |",  COL.llegada)  +
-    pad("| Fin Servicio |",  COL.fin)      +
-    pad("| Cola |",          COL.cola)     +
-    pad("| Servidor |",      COL.servidor);
+function renderInfoLeft(params) {
+  const bar = document.getElementById("infoBar");
+  bar.innerHTML = "";
 
-  if (_hayExtras()) {
-    cabecera += SEP;
-    if (_abandonoActivo) cabecera += pad("| Prox.Abandono |", COL.abandono);
-    if (_seguridadActiva) {
-      cabecera +=
-        pad("| Llega al PS |", COL.zsLlegada) +
-        pad("| Zona Seg. |",   COL.zsEstado);
-    }
-    if (_descansoActivo) {
-      cabecera +=
-        pad("| Sal.Servidor |", COL.salida)  +
-        pad("| Reg.Servidor |", COL.regreso) +
-        pad("| P.S. |",         COL.ps);
-    }
-    if (_prioridadesActivo) {
-      cabecera +=
-        pad("| Prox.Leg.A |", COL.llegadaA) +
-        pad("| Prox.Leg.B |", COL.llegadaB) +
-        pad("| Cola A |",     COL.colaA)    +
-        pad("| Cola B |",     COL.colaB);
-    }
+  // ── Panel izquierdo: parámetros + modificadores ──
+  const left = document.createElement("div");
+  left.id = "infoLeft";
+
+  const title = document.createElement("div");
+  title.className = "info-title";
+  title.textContent = "SIMULACIÓN DE SISTEMA DE COLAS";
+  left.appendChild(title);
+
+  const sep1 = document.createElement("hr");
+  sep1.className = "info-sep";
+  left.appendChild(sep1);
+
+  const pares = [];
+  if (_prioridadesActivo) {
+    pares.push(["tLL_A", `${params.tLL}s`]);
+    pares.push(["tLL_B", `${params.paramsModificadores.prioridades ?? 45}s`]);
+  } else {
+    pares.push(["tLL", `${params.tLL}s`]);
+  }
+  pares.push(["tS", `${params.tS}s`]);
+  if (_descansoActivo) {
+    pares.push(["ΔD", `${params.paramsModificadores.descanso ?? 60}s`]);
+    pares.push(["ΔT", `${params.paramsModificadores.descanso_trabajo ?? 30}s`]);
+  }
+  if (_abandonoActivo)  pares.push(["paciencia", `${params.paramsModificadores.abandono ?? 10}s`]);
+  if (_seguridadActiva) pares.push(["cruce ZS",  `${params.paramsModificadores.seguridad ?? 5}s`]);
+  pares.push(["T", `${params.tiempoTotal}s`]);
+
+  const paramDiv = document.createElement("div");
+  paramDiv.className = "info-params";
+  paramDiv.innerHTML = pares
+    .map(([k, v]) => `${k}&nbsp;<b>${v}</b>`)
+    .join('<span class="param-sep">&nbsp; | &nbsp;</span>');
+  left.appendChild(paramDiv);
+
+  const modActivos = Object.entries(params.modificadoresActivos)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+
+  if (modActivos.length > 0) {
+    const label = document.createElement("div");
+    label.className = "info-label";
+    label.textContent = "Modificadores activos";
+    left.appendChild(label);
+
+    const badgesDiv = document.createElement("div");
+    badgesDiv.className = "mod-badges";
+    modActivos.forEach(nombre => {
+      const badge = document.createElement("span");
+      badge.className = `mod-badge-pill ${nombre}`;
+      badge.textContent = nombre;
+      badgesDiv.appendChild(badge);
+    });
+    left.appendChild(badgesDiv);
   }
 
-  logLinea(cabecera);
-  logLinea("─".repeat(ancho));
+  // ── Panel derecho: vacío hasta que lleguen las stats ──
+  const right = document.createElement("div");
+  right.id = "infoRight";
+
+  bar.append(left, right);
 }
 
-// ─── FILA DE TABLA ───────────────────────────────────────────
-
-function imprimirFila({ evento, hora, estado }) {
-  const COL  = getCOL();
-  const colaA = estado.cola.filter(c => c.tipo === "A").length;
-  const colaB = estado.cola.filter(c => c.tipo === "B").length;
-
-  let linea =
-    padPuntos(evento,                                      COL.evento)   +
-    padPuntos(formatHora(hora),                            COL.hora)     +
-    padPuntos(formatHora(estado.proximoEventoLlegada),     COL.llegada)  +
-    padPuntos(formatHora(estado.proximoEventoFinServicio), COL.fin)      +
-    padPuntos(estado.cola.length,                          COL.cola)     +
-    padPuntos(estado.servidor.estado,                      COL.servidor);
-
-  if (_hayExtras()) {
-    linea += SEP;
-    if (_abandonoActivo) {
-      linea += padPuntos(formatHora(proximoAbandono(estado)), COL.abandono);
-    }
-    if (_seguridadActiva) {
-      linea +=
-        padPuntos(formatHora(estado._eventosExtra?.zs), COL.zsLlegada) +
-        padPuntos(estado.zonaSeguridad ?? "─────",       COL.zsEstado);
-    }
-    if (_descansoActivo) {
-      linea +=
-        padPuntos(formatHora(estado._eventosExtra?.servidor_salida),  COL.salida)  +
-        padPuntos(formatHora(estado._eventosExtra?.servidor_llegada), COL.regreso) +
-        padPuntos(estado._servidorPresente ? "PRESENTE" : "AUSENTE",  COL.ps);
-    }
-    if (_prioridadesActivo) {
-      linea +=
-        padPuntos(formatHora(estado.proximoEventoLlegada),      COL.llegadaA) +
-        padPuntos(formatHora(estado._eventosExtra?.llegada_B),  COL.llegadaB) +
-        padPuntos(colaA,                                        COL.colaA)    +
-        padPuntos(colaB,                                        COL.colaB);
-    }
-  }
-
-  logLinea(linea);
-}
+// ─── INFO BAR: PANEL DERECHO (estadísticas) ───────────────────
 
 function imprimirEstadisticas(estado) {
   const s = estado.stats;
@@ -167,15 +137,129 @@ function imprimirEstadisticas(estado) {
     ? (s.tiempoEsperaTotal / s.clientesAtendidos).toFixed(1)
     : 0;
 
-  const sep = "─".repeat(Math.max(getAncho(), 76));
+  const right = document.getElementById("infoRight");
+  if (!right) return;
 
-  logLinea(sep);
-  logLinea("  ESTADÍSTICAS FINALES");
-  logLinea(sep);
-  logLinea(`  Clientes atendidos:   ${s.clientesAtendidos}`);
-  logLinea(`  Clientes abandonaron: ${s.clientesAbandonaron}`);
-  logLinea(`  Espera promedio:      ${promEspera}s`);
-  logLinea(sep);
+  const title = document.createElement("div");
+  title.className = "info-title";
+  title.textContent = "ESTADÍSTICAS FINALES";
+  right.appendChild(title);
+
+  const sep = document.createElement("hr");
+  sep.className = "info-sep";
+  right.appendChild(sep);
+
+  [
+    ["Clientes atendidos",   s.clientesAtendidos],
+    ["Clientes abandonaron", s.clientesAbandonaron],
+    ["Espera promedio",      `${promEspera}s`],
+  ].forEach(([label, value]) => {
+    const row = document.createElement("div");
+    row.className = "stat-row";
+    row.innerHTML = `<span class="stat-label">${label}</span><span class="stat-value">${value}</span>`;
+    right.appendChild(row);
+  });
+}
+
+// ─── HELPERS DE TABLA ─────────────────────────────────────────
+
+function mkTh(label, mod) {
+  const th = document.createElement("th");
+  th.textContent = label;
+  if (mod) th.classList.add(`mod-${mod}`);
+  return th;
+}
+
+function mkTd(valor, mod) {
+  const td = document.createElement("td");
+  td.textContent = (valor === null || valor === undefined) ? "─" : String(valor);
+  if (mod) td.classList.add(`mod-${mod}`);
+  return td;
+}
+
+// ─── ENCABEZADO ───────────────────────────────────────────────
+
+function imprimirEncabezadoTabla() {
+  const thead = document.getElementById("eventHead");
+  if (!thead) return;
+  thead.innerHTML = "";
+
+  const tr = document.createElement("tr");
+
+  tr.append(
+    mkTh("Evento"),
+    mkTh("Hora"),
+    mkTh("Próx. Llegada"),
+    mkTh("Fin Servicio"),
+    mkTh("Cola"),
+    mkTh("Servidor"),
+  );
+
+  let sepPendiente = _hayExtras();
+  const thMod = (label, mod) => {
+    const th = mkTh(label, mod);
+    if (sepPendiente) { th.classList.add("sep-left"); sepPendiente = false; }
+    return th;
+  };
+
+  if (_abandonoActivo)    tr.append(thMod("Próx. Abandono", "abandono"));
+  if (_seguridadActiva)   tr.append(thMod("Llega al PS", "seguridad"),    mkTh("Zona Seg.", "seguridad"));
+  if (_descansoActivo)    tr.append(thMod("Sal. Servidor", "descanso"),   mkTh("Reg. Servidor", "descanso"), mkTh("P.S.", "descanso"));
+  if (_prioridadesActivo) tr.append(thMod("Próx. Leg. A", "prioridades"), mkTh("Próx. Leg. B", "prioridades"), mkTh("Cola A", "prioridades"), mkTh("Cola B", "prioridades"));
+
+  thead.appendChild(tr);
+}
+
+// ─── FILA DE DATOS ────────────────────────────────────────────
+
+function imprimirFila({ evento, hora, estado }) {
+  const tbody = document.getElementById("eventBody");
+  if (!tbody) return;
+
+  const tr = document.createElement("tr");
+
+  tr.append(
+    mkTd(evento),
+    mkTd(formatHora(hora)),
+    mkTd(formatHora(estado.proximoEventoLlegada)),
+    mkTd(formatHora(estado.proximoEventoFinServicio)),
+    mkTd(estado.cola.length),
+    mkTd(estado.servidor.estado),
+  );
+
+  if (_hayExtras()) {
+    let sepPendiente = true;
+    const tdMod = (valor, mod) => {
+      const td = mkTd(valor, mod);
+      if (sepPendiente) { td.classList.add("sep-left"); sepPendiente = false; }
+      return td;
+    };
+
+    if (_abandonoActivo) tr.append(tdMod(formatHora(proximoAbandono(estado)), "abandono"));
+    if (_seguridadActiva) tr.append(
+      tdMod(formatHora(estado._eventosExtra?.zs), "seguridad"),
+      mkTd(estado.zonaSeguridad ?? "─", "seguridad"),
+    );
+    if (_descansoActivo) tr.append(
+      tdMod(formatHora(estado._eventosExtra?.servidor_salida), "descanso"),
+      mkTd(formatHora(estado._eventosExtra?.servidor_llegada), "descanso"),
+      mkTd(estado._servidorAusente ? "AUSENTE" : "PRESENTE", "descanso"),
+    );
+    if (_prioridadesActivo) {
+      const colaA = estado.cola.filter(c => c.tipo === "A").length;
+      const colaB = estado.cola.filter(c => c.tipo === "B").length;
+      tr.append(
+        tdMod(formatHora(estado.proximoEventoLlegada), "prioridades"),
+        mkTd(formatHora(estado._eventosExtra?.llegada_B), "prioridades"),
+        mkTd(colaA, "prioridades"),
+        mkTd(colaB, "prioridades"),
+      );
+    }
+  }
+
+  tbody.appendChild(tr);
+  const wrapper = document.getElementById("tableWrapper");
+  if (wrapper) wrapper.scrollTop = wrapper.scrollHeight;
 }
 
 // ─── BOTONES ─────────────────────────────────────────────────
@@ -186,7 +270,6 @@ function setBotones({ iniciando }) {
 }
 
 // ─── LEER PARÁMETROS DE TIEMPO (fijo o aleatorio) ────────────
-// Para cada clave de tiempo, devuelve { modo, valor, min, max }
 
 function leerParamTiempo(key, idFijo) {
   const sw = document.querySelector(`.modo-switch[data-key="${key}"]`);
@@ -258,7 +341,6 @@ function leerParametros() {
     if (cb.checked) {
       const input = document.getElementById(`param_${nombre}`);
       paramsModificadores[nombre] = parseFloat(input?.value) || 0;
-
       if (nombre === "descanso") {
         const inputT = document.getElementById("param_descanso_trabajo");
         paramsModificadores["descanso_trabajo"] = parseFloat(inputT?.value) || 30;
@@ -318,40 +400,7 @@ function iniciarSimulacion() {
   _prioridadesActivo = params.modificadoresActivos?.prioridades ?? false;
 
   limpiarConsola();
-
-  const ancho = getAncho();
-  logLinea("═".repeat(ancho));
-  logLinea("  SIMULACIÓN DE SISTEMA DE COLAS");
-
-  // Construir línea de parámetros con indicación fijo/aleatorio
-  function descTiempo(key, idFijo, label) {
-    const sw = document.querySelector(`.modo-switch[data-key="${key}"]`);
-    if (sw?.checked) {
-      const minEl = document.querySelector(`.rango-min[data-key="${key}"]`);
-      const maxEl = document.querySelector(`.rango-max[data-key="${key}"]`);
-      return `${label}=[${minEl?.value}-${maxEl?.value}]s`;
-    }
-    return `${label}=${document.getElementById(idFijo)?.value}s`;
-  }
-
-  const dLL = descTiempo("tLL", "tiempoLlegada", "tLL");
-  const dS  = descTiempo("tS",  "tiempoServicio", "tS");
-
-  if (_descansoActivo) {
-    const dD = descTiempo("deltaD", "param_descanso",        "ΔD");
-    const dT = descTiempo("deltaT", "param_descanso_trabajo","ΔT");
-    logLinea(`  ${dLL}  |  ${dS}  |  ${dD}  |  ${dT}  |  T=${params.tiempoTotal}s`);
-  } else if (_prioridadesActivo) {
-    const tB = params.paramsModificadores.prioridades ?? 45;
-    logLinea(`  ${dLL}  |  tLL_B=${tB}s  |  ${dS}  |  T=${params.tiempoTotal}s`);
-  } else {
-    logLinea(`  ${dLL}  |  ${dS}  |  T=${params.tiempoTotal}s`);
-  }
-
-  const activos = Object.entries(params.modificadoresActivos)
-    .filter(([, v]) => v).map(([k]) => k);
-  if (activos.length) logLinea(`  Modificadores: ${activos.join(", ")}`);
-  logLinea("═".repeat(ancho));
+  renderInfoLeft(params);
   imprimirEncabezadoTabla();
 
   setBotones({ iniciando: true });
@@ -377,7 +426,6 @@ function actualizarModoTiempo(key, checked) {
 
 document.addEventListener("DOMContentLoaded", () => {
 
-  // Inicializar los listeners del Vector Inicial V(0)
   if (window.vectorInicial) window.vectorInicial.inicializarUI();
 
   Bus.on("fila", imprimirFila);
@@ -397,7 +445,6 @@ document.addEventListener("DOMContentLoaded", () => {
     setBotones({ iniciando: false });
   });
 
-  // Toggle de modificadores: badge + panel + inputs
   document.querySelectorAll(".modificador-check").forEach(cb => {
     cb.addEventListener("change", () => {
       const nombre = cb.dataset.mod;
@@ -410,7 +457,6 @@ document.addEventListener("DOMContentLoaded", () => {
       badge.classList.toggle("on", cb.checked);
       row.classList.toggle("activo", cb.checked);
 
-      // Habilitar/deshabilitar switches y campos dentro del modificador
       row.querySelectorAll(".modo-switch, .rango-min, .rango-max, input[type='number']").forEach(el => {
         el.disabled = !cb.checked;
       });
