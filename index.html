@@ -12,7 +12,22 @@
 
     <!-- COLUMNA IZQUIERDA: config -->
     <div class="container">
+
       <h1>Teoría de Colas</h1>
+
+      <!-- ─── VECTOR INICIAL ─────────────────────────────────── -->
+      <div class="vector-display">
+        <span class="vector-title">Vector Inicial</span>
+        <div class="vector-values">
+          <span>Hora:&nbsp;<b id="vi_disp_hora">0</b></span>
+          <span class="vi-sep">|</span>
+          <span>Cola:&nbsp;<b id="vi_disp_cola">0</b></span>
+          <span class="vi-sep">|</span>
+          <span>Servidor:&nbsp;<b id="vi_disp_servidor">LIBRE</b></span>
+        </div>
+        <button onclick="abrirModalVector()">✏ Editar Vector Inicial</button>
+      </div>
+
       <p><strong>Parámetros de Simulación</strong></p>
 
       <div class="modifiers">
@@ -92,9 +107,34 @@
       </div>
     </div>
 
-    <!-- COLUMNA DERECHA: consola -->
-    <div id="consoleBox"></div>
+    <!-- COLUMNA DERECHA: panel de salida -->
+    <div id="outputPanel">
+      <div id="infoBar"></div>
+      <div id="tableWrapper">
+        <table id="eventTable">
+          <thead id="eventHead"></thead>
+          <tbody id="eventBody"></tbody>
+        </table>
+      </div>
+    </div>
 
+  </div>
+
+  <!-- ─── MODAL VECTOR INICIAL ────────────────────────────── -->
+  <div class="modal-overlay" id="modalVector">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title">Editar Vector Inicial</span>
+        <button class="modal-close-btn" onclick="cerrarModalVector()">✕</button>
+      </div>
+      <div class="modal-scroll-wrap">
+        <div id="vectorModalContent"></div>
+      </div>
+      <div class="modal-footer">
+        <button onclick="guardarVectorInicial()">✓ Guardar</button>
+        <button class="btn-limpiar" onclick="resetVectorInicial()">⌫ Restablecer</button>
+      </div>
+    </div>
   </div>
 
   <!-- Orden obligatorio: motor → modificadores → ui -->

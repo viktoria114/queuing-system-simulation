@@ -206,6 +206,87 @@ function _finalizar() {
   Bus.emitir("fin", estado);
 }
 
+// ─── VECTOR INICIAL ──────────────────────────────────────────
+// Aplica el vector inicial DESPUÉS de que los modificadores se hayan
+// inicializado, sobrescribiendo los defaults que hayan establecido.
+
+function _aplicarVectorInicial(vi) {
+  const priActivo = !!estado.modificadoresActivos?.prioridades;
+
+  // 1. Hora de inicio
+  if (vi.hora) estado.tiempoActual = vi.hora;
+
+  // 2. Cola inicial
+  if (priActivo) {
+    const nA = vi.prioridades_colaA ?? 0;
+    const nB = vi.prioridades_colaB ?? 0;
+    for (let i = 0; i < nA; i++) {
+      estado.clienteIdCounter++;
+      estado.cola.push({ id: estado.clienteIdCounter, tiempoLlegada: estado.tiempoActual, tiempoInicioServicio: null, prioridad: 1, tipo: "A" });
+    }
+    for (let i = 0; i < nB; i++) {
+      estado.clienteIdCounter++;
+      estado.cola.push({ id: estado.clienteIdCounter, tiempoLlegada: estado.tiempoActual, tiempoInicioServicio: null, prioridad: 0, tipo: "B" });
+    }
+    if (nA + nB > 0) estado.cola.sort((a, b) => b.prioridad - a.prioridad);
+  } else {
+    const nCola = vi.cola ?? 0;
+    for (let i = 0; i < nCola; i++) {
+      estado.clienteIdCounter++;
+      estado.cola.push({ id: estado.clienteIdCounter, tiempoLlegada: estado.tiempoActual, tiempoInicioServicio: null, prioridad: 0 });
+    }
+  }
+
+  // 3. Estado del servidor
+  if (vi.servidor === "OCUPADO") {
+    estado.servidor.estado = "OCUPADO";
+    estado.clienteIdCounter++;
+    estado.clienteEnServicio = {
+      id:                   estado.clienteIdCounter,
+      tiempoLlegada:        estado.tiempoActual,
+      tiempoInicioServicio: estado.tiempoActual,
+      prioridad:            0,
+    };
+  }
+
+  // 4. Próxima llegada
+  if (priActivo && vi.prioridades_proxLlegadaA !== null && vi.prioridades_proxLlegadaA !== undefined) {
+    estado.proximoEventoLlegada = vi.prioridades_proxLlegadaA;
+  } else if (vi.proximaLlegada !== null && vi.proximaLlegada !== undefined) {
+    estado.proximoEventoLlegada = vi.proximaLlegada;
+  } else {
+    estado.proximoEventoLlegada = estado.tiempoActual + estado.tLL;
+  }
+
+  // 5. Fin de servicio (calculado automáticamente si el servidor arranca ocupado)
+  if (vi.servidor === "OCUPADO") {
+    estado.proximoEventoFinServicio = estado.tiempoActual + estado.tS;
+  }
+
+  // 6. Extras de modificadores (sobrescriben lo que iniciar() haya calculado)
+  if (vi.abandono_proxAbandono !== null && vi.abandono_proxAbandono !== undefined)
+    estado._eventosExtra.abandono = vi.abandono_proxAbandono;
+
+  if (vi.seguridad_llegaPS !== null && vi.seguridad_llegaPS !== undefined) {
+    estado._eventosExtra.zs = vi.seguridad_llegaPS;
+    estado.zonaSeguridad    = "OCUPADO";
+  }
+
+  if (vi.descanso_salidaServidor !== null && vi.descanso_salidaServidor !== undefined)
+    estado._eventosExtra.servidor_salida = vi.descanso_salidaServidor;
+
+  if (vi.descanso_regresoServidor !== null && vi.descanso_regresoServidor !== undefined)
+    estado._eventosExtra.servidor_llegada = vi.descanso_regresoServidor;
+
+  if (vi.descanso_presencia === "AUSENTE") {
+    estado._servidorAusente = true;
+    estado.servidor.estado  = "AUSENTE";
+  }
+
+  if (priActivo && vi.prioridades_proxLlegadaB !== null && vi.prioridades_proxLlegadaB !== undefined)
+    estado._eventosExtra.llegada_B = vi.prioridades_proxLlegadaB;
+}
+
 // ─── API PÚBLICA ─────────────────────────────────────────────
 // Estas son las únicas funciones que ui.js llama sobre el motor.
 
@@ -215,12 +296,11 @@ function motorIniciar(params) {
   HookRegistry.limpiar();
 
   estado = crearEstadoInicial(params);
-  estado.corriendo   = true;
+  estado.corriendo     = true;
   estado._eventosExtra = {};
-  estado._velocidad  = params.velocidad ?? 120;
-  estado.proximoEventoLlegada = estado.tLL;
+  estado._velocidad    = params.velocidad ?? 120;
 
-  // Inicializar modificadores activos
+  // Inicializar modificadores activos (registran hooks y ponen defaults en _eventosExtra)
   for (const [nombre, activo] of Object.entries(estado.modificadoresActivos)) {
     if (activo && window[`modificador_${nombre}`]) {
       window[`modificador_${nombre}`].iniciar(estado);
@@ -228,6 +308,10 @@ function motorIniciar(params) {
   }
 
   HookRegistry.ejecutar("onIniciar", estado);
+
+  // Aplicar vector inicial DESPUÉS de los modificadores para sobrescribir sus defaults
+  _aplicarVectorInicial(params.vectorInicial ?? {});
+
   Bus.emitir("inicio", estado);
   paso();
 }
