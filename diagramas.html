@@ -64,17 +64,20 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 3rem 0; }
 <nav>
   <div class="nav-title">Diagramas de Flujo</div>
 
+  <div class="nav-section">Inicialización</div>
+  <a href="#vi-aplicar">Vector Inicial — aplicar V(0)</a>
+
   <div class="nav-section">Motor</div>
-  <a href="#loop">Loop principal — paso()</a>
-  <a href="#llegada">Evento: LLEGADA</a>
-  <a href="#fin-servicio">Evento: FIN DE SERVICIO</a>
+  <a href="#loop">Loop principal</a>
+  <a href="#llegada">Llegada de un cliente</a>
+  <a href="#fin-servicio">Fin de servicio</a>
 
   <div class="nav-section">Modificadores</div>
-  <a href="#abandono">Abandono — onEvento_abandono</a>
-  <a href="#zs">Zona de Seguridad — onEvento_zs</a>
-  <a href="#servidor-salida">Descanso — SALIDA servidor</a>
-  <a href="#servidor-llegada">Descanso — LLEGADA servidor</a>
-  <a href="#llegada-b">Prioridades — LLEGADA B</a>
+  <a href="#abandono">Abandono</a>
+  <a href="#zs">Zona de Seguridad</a>
+  <a href="#servidor-salida">Descanso — el servidor se va</a>
+  <a href="#servidor-llegada">Descanso — el servidor vuelve</a>
+  <a href="#llegada-b">Prioridades — llegada tipo B</a>
 </nav>
 
 <main>
@@ -94,28 +97,28 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 3rem 0; }
         eventos extra de modificadores. Si ese mínimo supera el horizonte de simulación, finaliza.
         Si no, despacha el evento al handler correspondiente y se reprograma con
         <code>setTimeout</code> para permitir que el navegador renderice entre pasos.
-        El fin de servicio se trata como <code>∞</code> mientras <code>_servidorPresente === false</code>
-        (servidor en descanso), congelándolo hasta que el servidor regrese.
+        El fin de servicio se ignora mientras el servidor está de descanso,
+        congelándolo hasta que regrese.
       </p>
     </div>
     <div class="diagram-wrap">
 <pre class="mermaid">
 flowchart TD
-    A([paso]) --> B{corriendo?}
+    A([Nuevo paso]) --> B{¿La simulación sigue corriendo?}
     B -->|No| STOP([Terminar])
-    B -->|Sí| H1[hooks onPaso]
-    H1 --> C1[llegada = proximoEventoLlegada]
-    C1 --> C2["finSvc = _servidorPresente ? proximoFinSvc : ∞"]
-    C2 --> C3[extra = min de _eventosExtra]
-    C3 --> F["proximo = min(llegada, finSvc, extra)"]
-    F --> G{proximo > tiempoTotal?}
-    G -->|Sí| FIN["_finalizar\nhooks onFin · Bus fin"]
-    G -->|No| EX{"extra ≤ llegada\ny extra ≤ finSvc?"}
-    EX -->|Sí| EVT["onEvento_nombre\neg. abandono, zs, servidor_salida, llegada_B"]
-    EX -->|No| LL{llegada ≤ finSvc?}
-    LL -->|Sí| PL[procesarLlegada]
-    LL -->|No| PFS[procesarFinServicio]
-    EVT --> T["setTimeout(paso, velocidad)"]
+    B -->|Sí| H1[Ejecutar acciones de inicio de paso]
+    H1 --> C1[Tomar el tiempo de la próxima llegada]
+    C1 --> C2[Tomar el tiempo del próximo fin de servicio — ignorarlo si el servidor está de descanso]
+    C2 --> C3[Tomar el menor tiempo entre los eventos extra de los modificadores]
+    C3 --> F[Quedarse con el evento más próximo de los tres]
+    F --> G{¿Ese evento ocurre después del tiempo límite de la simulación?}
+    G -->|Sí| FIN[Ejecutar acciones de cierre y notificar que terminó]
+    G -->|No| EX{¿El evento más próximo es uno de los modificadores?}
+    EX -->|Sí| EVT[Procesar ese evento de modificador — abandono, zona de seguridad, descanso, etc.]
+    EX -->|No| LL{¿La llegada ocurre antes o al mismo tiempo que el fin de servicio?}
+    LL -->|Sí| PL[Procesar llegada de cliente]
+    LL -->|No| PFS[Procesar fin de servicio]
+    EVT --> T[Programar el siguiente paso con un pequeño retardo para animar la tabla]
     PL --> T
     PFS --> T
     T -.->|siguiente tick| A
@@ -129,37 +132,36 @@ flowchart TD
   <section id="llegada">
     <div class="section-head">
       <span class="badge badge-motor">motor.js</span>
-      <h2>Evento LLEGADA — <code>procesarLlegada()</code></h2>
+      <h2>Llegada de un cliente — <code>procesarLlegada()</code></h2>
       <p class="desc">
-        Procesa la llegada de un nuevo cliente al sistema. Primero ejecuta los hooks
-        <code>onLlegada</code>: el modificador de <strong>prioridades</strong> marca al cliente
-        como Tipo A (<code>prioridad = 1</code>); el de <strong>seguridad</strong> puede devolver
-        <code>false</code> para redirigir al cliente a la Zona de Seguridad, cancelando el flujo
-        estándar de encolar/servir. Si ningún hook devuelve <code>false</code>, se aplica FCFS
-        con prioridades. Después de encolar, el hook <code>onLlegadaPost</code> de
-        <strong>abandono</strong> asigna el <code>tiempoLimite</code> si el cliente quedó en cola.
+        Procesa la llegada de un nuevo cliente al sistema. Primero los modificadores pueden
+        interceptar al cliente: <strong>prioridades</strong> lo marca como Tipo A,
+        <strong>seguridad</strong> puede redirigirlo a la Zona de Seguridad en lugar de encolarlo.
+        Si nadie lo intercepta, se aplica la lógica estándar: si el servidor está libre lo atiende
+        de inmediato, si no lo pone en la cola ordenada por prioridad. Por último,
+        <strong>abandono</strong> le asigna un tiempo límite de espera si quedó en cola.
       </p>
     </div>
     <div class="diagram-wrap">
 <pre class="mermaid">
 flowchart TD
-    A([LLEGADA]) --> B[tiempoActual = proximoEventoLlegada]
-    B --> B2["clienteIdCounter++ · crear cliente"]
-    B2 --> HK["hooks onLlegada\n— prioridades: tipo=A, prioridad=1\n— seguridad: puede interceptar"]
-    HK --> D{algún hook\nretornó false?}
-    D -->|Sí — interceptado| E[No encolar ni enviar al PS]
-    D -->|No| F{servidor == LIBRE?}
-    F -->|Sí| G[servidor = OCUPADO]
-    G --> G2[clienteEnServicio = cliente]
-    G2 --> G3["proximoFinSvc = ahora + sortear(tS)"]
-    F -->|No| H[cola.push cliente]
-    H --> H2[cola.sort desc por prioridad]
+    A([Llega un cliente]) --> B[El reloj avanza al momento de esa llegada]
+    B --> B2[Se crea el cliente con un número de identificación único]
+    B2 --> HK[Los modificadores tienen la oportunidad de interceptar al cliente]
+    HK --> D{¿Algún modificador interceptó al cliente?}
+    D -->|"Sí — por ejemplo, lo mandaron a la Zona de Seguridad"| E[No se encola ni se envía al servidor]
+    D -->|No| F{¿El servidor está libre?}
+    F -->|Sí| G[El servidor pasa a estar ocupado]
+    G --> G2[El cliente empieza a ser atendido]
+    G2 --> G3[Se sortea la duración del servicio y se agenda el fin]
+    F -->|No| H[El cliente se agrega al final de la cola]
+    H --> H2[La cola se reordena: mayor prioridad primero]
     E --> I
     G3 --> I
     H2 --> I
-    I["proximoEventoLlegada = ahora + sortear(tLL)"] --> J["hooks onLlegadaPost\n— abandono: asigna tiempoLimite si en cola"]
-    J --> K["Bus.emitir LLEGADA #id"]
-    K --> Z([FIN])
+    I[Se sortea cuándo llega el próximo cliente y se agenda] --> J[Si quedó en cola y hay abandono activo se le asigna un tiempo límite de paciencia]
+    J --> K[Se registra el evento en la tabla]
+    K --> Z([Fin])
 </pre>
     </div>
   </section>
@@ -170,38 +172,83 @@ flowchart TD
   <section id="fin-servicio">
     <div class="section-head">
       <span class="badge badge-motor">motor.js</span>
-      <h2>Evento FIN DE SERVICIO — <code>procesarFinServicio()</code></h2>
+      <h2>Fin de servicio — <code>procesarFinServicio()</code></h2>
       <p class="desc">
-        El cliente en el PS termina de ser atendido. Si <code>_servidorPresente === false</code>
-        (servidor en descanso), el evento se ignora hasta que el servidor regrese. De lo contrario:
-        se contabiliza el cliente atendido y el tiempo de espera. Si hay cola, el siguiente
-        cliente pasa al PS. El hook <code>onFinServicioPost</code> de <strong>seguridad</strong>
-        puede interceptar al siguiente cliente y enviarlo a la ZS antes del servicio; el de
-        <strong>abandono</strong> reagenda el próximo abandono con la cola actualizada.
+        El cliente en el servidor termina de ser atendido. Si el servidor está de descanso,
+        este evento se ignora: el cliente queda congelado en el servidor hasta que el descanso
+        termine. En caso contrario se contabiliza al cliente y su tiempo de espera. Si hay
+        alguien esperando en la cola, el primero pasa a ser atendido. Los modificadores pueden
+        actuar después: <strong>seguridad</strong> puede enviar al siguiente cliente a cruzar la
+        zona antes de atenderlo; <strong>abandono</strong> actualiza el próximo retiro de la cola.
       </p>
     </div>
     <div class="diagram-wrap">
 <pre class="mermaid">
 flowchart TD
-    A([FIN SERVICIO]) --> GP{_servidorPresente?}
-    GP -->|false — congelado por descanso| RET([RETURN: ignorar])
-    GP -->|true| B[tiempoActual = proximoEventoFinServicio]
-    B --> B2[clienteAtendido = clienteEnServicio]
-    B2 --> HK1[hooks onFinServicio]
-    HK1 --> C[stats.clientesAtendidos++]
-    C --> C2["tiempoEsperaTotal += inicio - llegada"]
-    C2 --> D{cola.length > 0?}
-    D -->|Sí| E[siguiente = cola.shift]
-    E --> E2[siguiente.tiempoInicioServicio = ahora]
-    E2 --> E3[clienteEnServicio = siguiente]
-    E3 --> E4["proximoFinSvc = ahora + sortear(tS)"]
-    D -->|No| F[servidor = LIBRE]
-    F --> F2[clienteEnServicio = null]
-    F2 --> F3[proximoFinSvc = null]
-    E4 --> HK2
-    F3 --> HK2
-    HK2["hooks onFinServicioPost\n— abandono: reagenda próximo abandono\n— seguridad: envía siguiente a ZS si aplica"] --> K["Bus.emitir FIN SERVICIO #id"]
-    K --> Z([FIN])
+    A([Termina un servicio]) --> GP{¿El servidor está presente?}
+    GP -->|No — está de descanso| RET([Ignorar: el cliente sigue congelado en el servidor])
+    GP -->|Sí| B[El reloj avanza al momento en que terminó el servicio]
+    B --> B2[Se identifica al cliente que acaba de ser atendido]
+    B2 --> HK1[Los modificadores pueden actuar antes de liberar el servidor]
+    HK1 --> C[Se suma un cliente más al contador de atendidos]
+    C --> C2[Se acumula el tiempo que ese cliente esperó en cola]
+    C2 --> D{¿Hay alguien esperando en la cola?}
+    D -->|Sí| E[El primero de la cola pasa a ser atendido]
+    E --> E2[Se registra a qué hora empieza a ser atendido]
+    E2 --> E3[Se sortea cuánto dura su servicio y se agenda el fin]
+    D -->|No| F[El servidor queda libre]
+    F --> F2[No hay ningún fin de servicio programado]
+    E3 --> HK2
+    F2 --> HK2
+    HK2[Los modificadores actúan después — abandono reagenda retiros · seguridad puede enviar al siguiente a la zona] --> K[Se registra el evento en la tabla]
+    K --> Z([Fin])
+</pre>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 0. VECTOR INICIAL                                          -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="vi-aplicar">
+    <div class="section-head">
+      <span class="badge badge-motor">vectorInicial.js</span>
+      <h2>Vector Inicial — aplicar V(0)</h2>
+      <p class="desc">
+        Se ejecuta al arrancar la simulación, después de que los modificadores ya registraron sus hooks.
+        Su trabajo es llenar el estado inicial con lo que el usuario configuró en el modal:
+        cuántos clientes hay esperando, si el servidor ya estaba atendiendo a alguien, si el servidor
+        estaba descansando, y a qué hora arranca el reloj.
+        <br><br>
+        <strong>Novedad:</strong> si el usuario pone clientes en cola pero el servidor figura como libre,
+        el sistema arranca el servicio del primero automáticamente. Sin esto, no habría ningún evento
+        programado dentro del horizonte de simulación y la corrida terminaría de inmediato.
+      </p>
+    </div>
+    <div class="diagram-wrap">
+<pre class="mermaid">
+flowchart TD
+    A([Aplicar Vector Inicial]) --> B[Agregar los clientes iniciales a la cola tipo A]
+    B --> C{¿Prioridades activo?}
+    C -->|Sí| D[Agregar también los clientes tipo B a la cola]
+    C -->|No| E
+    D --> E[Ordenar la cola: tipo A primero, tipo B después]
+    E --> F{¿Abandono activo y los clientes ya llevan tiempo esperando?}
+    F -->|Sí| G[Calcular cuánto le queda de paciencia a cada cliente]
+    F -->|No| H
+    G --> H{¿El servidor está libre pero hay clientes en cola?}
+    H -->|"Sí — y el servidor no está de descanso ni hay alguien en la Zona de Seguridad"| I[El primer cliente de la cola pasa a ser atendido]
+    I --> I2[Se agenda cuándo termina ese servicio]
+    H -->|No| J
+    I2 --> J{¿Descanso activo?}
+    J -->|"Sí — el servidor estaba descansando"| K[Calcular cuánto falta para que el servidor vuelva]
+    J -->|No o estaba trabajando| L
+    K --> L{¿Seguridad activo y alguien estaba cruzando la zona?}
+    L -->|Sí| M[Crear un cliente en la zona y agendar cuándo termina de cruzar]
+    L -->|No| N
+    M --> N{¿La hora de inicio es mayor a cero?}
+    N -->|Sí| O[Desplazar el reloj y todos los tiempos de eventos hacia adelante]
+    N -->|No| Z([Fin])
+    O --> Z
 </pre>
     </div>
   </section>
@@ -214,42 +261,41 @@ flowchart TD
   <section id="abandono">
     <div class="section-head">
       <span class="badge badge-mod">modificadores/abandono.js</span>
-      <h2>Evento ABANDONO — <code>onEvento_abandono</code></h2>
+      <h2>Abandono — <code>onEvento_abandono</code></h2>
       <p class="desc">
-        Se dispara cuando el tiempo de simulación alcanza el mínimo <code>tiempoLimite</code>
-        de los clientes en cola. Elimina todos los clientes cuyo
-        <code>tiempoLimite ≤ ahora</code> (pueden ser varios simultáneos) y reagenda el evento
-        con el próximo límite de los restantes. El <code>tiempoLimite</code> de cada cliente
-        se asigna en el hook <code>onLlegadaPost</code> sumando la paciencia sorteada
-        (<code>SC</code>) a su <code>tiempoLlegada</code>.
+        Se dispara cuando llega el momento en que algún cliente pierde la paciencia y se va.
+        Pueden irse varios a la vez si todos agotaron su paciencia en el mismo instante.
+        Después de cada retiro se recalcula cuándo ocurrirá el próximo abandono mirando los
+        tiempos límite de los que siguen esperando. La paciencia de cada cliente se sortea
+        cuando llega y se le suma a su hora de llegada para saber hasta cuándo aguanta.
       </p>
     </div>
 
     <div class="diagram-wrap">
-      <div class="diagram-sub-label">Evento principal: onEvento_abandono</div>
+      <div class="diagram-sub-label">Cuando ocurre el evento de abandono</div>
 <pre class="mermaid">
 flowchart TD
-    A([ABANDONO]) --> B[tiempoActual = _eventosExtra.abandono]
-    B --> B2[_eventosExtra.abandono = null]
-    B2 --> C["buscar en cola: clientes con tiempoLimite ≤ ahora"]
-    C --> D{hay clientes\nque abandonan?}
+    A([Un cliente pierde la paciencia]) --> B[El reloj avanza al momento del abandono]
+    B --> B2[Se cancela el evento de abandono programado]
+    B2 --> C[Se buscan en la cola todos los clientes que ya agotaron su paciencia]
+    C --> D{¿Hay alguno?}
     D -->|No| G
-    D -->|Sí| E["para cada cliente abandonante:\n· cola.filter → eliminar\n· stats.clientesAbandonaron++\n· Bus.emitir ABANDONO #id"]
+    D -->|Sí| E[Cada uno de esos clientes se va de la cola · se suma al contador de abandonos · se registra en la tabla]
     E --> G
-    G["agendarProximoAbandono\n_eventosExtra.abandono = min tiempoLimite restante"] --> Z([FIN])
+    G[Se agenda el próximo abandono con el límite de paciencia más cercano entre los que quedan] --> Z([Fin])
 </pre>
     </div>
 
     <div class="diagram-wrap">
-      <div class="diagram-sub-label">Hook onLlegadaPost: asignar tiempoLimite al cliente</div>
+      <div class="diagram-sub-label">Cuando llega un cliente — asignarle tiempo límite de paciencia</div>
 <pre class="mermaid">
 flowchart TD
-    A([onLlegadaPost — abandono]) --> B{cliente está\nen la cola?}
-    B -->|No — fue al PS| Z([FIN: sin límite])
-    B -->|Sí| C["paciencia = sortear(SC, randomParams.abandono)"]
-    C --> D["cliente.tiempoLimite = tiempoLlegada + paciencia"]
-    D --> E[agendarProximoAbandono: actualizar _eventosExtra.abandono]
-    E --> Z2([FIN])
+    A([Llegó un cliente — abandono activo]) --> B{¿El cliente quedó en la cola o fue directo al servidor?}
+    B -->|Fue directo al servidor| Z([Fin — no necesita tiempo límite])
+    B -->|Quedó en la cola| C[Se sortea cuánto tiempo está dispuesto a esperar]
+    C --> D[Se calcula hasta qué hora aguanta sumando esa paciencia a su hora de llegada]
+    D --> E[Se actualiza el próximo evento de abandono si este nuevo límite es el más cercano]
+    E --> Z2([Fin])
 </pre>
     </div>
   </section>
@@ -260,61 +306,58 @@ flowchart TD
   <section id="zs">
     <div class="section-head">
       <span class="badge badge-mod">modificadores/seguridad.js</span>
-      <h2>Evento ZONA DE SEGURIDAD — <code>onEvento_zs</code></h2>
+      <h2>Zona de Seguridad — <code>onEvento_zs</code></h2>
       <p class="desc">
-        El cliente termina de cruzar la ZS y entra al PS para recibir el servicio. La
-        interceptación ocurre en el hook <code>onLlegada</code>: si la ZS está libre y el PS
-        está libre, el cliente se desvía a la ZS (retornando <code>false</code> para cancelar
-        el flujo normal). Si la ZS está ocupada y el PS libre, el PS se marca como
-        <code>OCUPADO</code> para que el cliente recién llegado vaya a la cola, reservando el
-        PS para quien está cruzando. El hook <code>onFinServicioPost</code> encadena el
-        siguiente cruce cuando termina un servicio.
+        Todo cliente debe cruzar la zona de seguridad antes de ser atendido. Cuando llega un
+        cliente y la zona está libre, se lo desvía a cruzarla en lugar de ir directo al servidor.
+        Si la zona ya está ocupada, el servidor se reserva para quien está cruzando y el recién
+        llegado espera en la cola. Cuando alguien termina de cruzar, pasa a ser atendido de
+        inmediato. Al terminar un servicio, si hay alguien en cola, ese siguiente cliente va
+        primero a cruzar la zona.
       </p>
     </div>
 
     <div class="diagram-wrap">
-      <div class="diagram-sub-label">Evento principal: onEvento_zs (fin de cruce)</div>
+      <div class="diagram-sub-label">Cuando alguien termina de cruzar la zona de seguridad</div>
 <pre class="mermaid">
 flowchart TD
-    A([EVENTO ZS]) --> B[tiempoActual = _eventosExtra.zs]
-    B --> B2[_eventosExtra.zs = null]
-    B2 --> C[cliente = clienteEnZona]
-    C --> C2[zonaSeguridad = LIBRE · clienteEnZona = null]
-    C2 --> D[cliente.tiempoInicioServicio = ahora]
-    D --> D2[clienteEnServicio = cliente · servidor = OCUPADO]
-    D2 --> D3["proximoFinSvc = ahora + sortear(tS)"]
-    D3 --> E["Bus.emitir LLEGA AL PS #id"]
-    E --> Z([FIN])
+    A([Termina el cruce de la zona de seguridad]) --> B[El reloj avanza al momento en que terminó el cruce]
+    B --> B2[La zona de seguridad queda libre]
+    B2 --> C[El cliente que cruzó pasa a ser atendido por el servidor]
+    C --> D[Se registra a qué hora empieza a ser atendido]
+    D --> D2[Se sortea cuánto dura el servicio y se agenda el fin]
+    D2 --> E[Se registra el evento en la tabla]
+    E --> Z([Fin])
 </pre>
     </div>
 
     <div class="diagram-wrap">
-      <div class="diagram-sub-label">Hook onLlegada: interceptar cliente hacia la ZS</div>
+      <div class="diagram-sub-label">Cuando llega un cliente — decidir si va a la zona o a la cola</div>
 <pre class="mermaid">
 flowchart TD
-    A([onLlegada — seguridad]) --> B{"zonaSeguridad == LIBRE\ny servidor == LIBRE?"}
-    B -->|Sí| C[zonaSeguridad = OCUPADO · clienteEnZona = cliente]
-    C --> C2["_eventosExtra.zs = ahora + sortear(tCruce)"]
-    C2 --> C3[return false — cancelar flujo normal]
-    C3 --> ZA([FIN: interceptado])
-    B -->|No| D{"zonaSeguridad == OCUPADO\ny servidor == LIBRE?"}
-    D -->|Sí| E[servidor = OCUPADO reservar PS]
-    E --> ZB([FIN: continúa procesarLlegada])
-    D -->|No — servidor ocupado| ZB
+    A([Llega un cliente — seguridad activa]) --> B{¿La zona de seguridad está libre y el servidor también?}
+    B -->|Sí| C[El cliente entra a cruzar la zona de seguridad]
+    C --> C2[Se sortea cuánto tarda en cruzar y se agenda el fin del cruce]
+    C2 --> C3[Se cancela el flujo normal — este cliente no va a la cola]
+    C3 --> ZA([Fin — cliente cruzando la zona])
+    B -->|No| D{¿La zona está ocupada pero el servidor sigue libre?}
+    D -->|Sí| E[El servidor se reserva para quien ya está cruzando · el nuevo cliente irá a la cola]
+    E --> ZB([Fin — sigue el flujo normal de llegada])
+    D -->|No — el servidor también está ocupado| ZB
 </pre>
     </div>
 
     <div class="diagram-wrap">
-      <div class="diagram-sub-label">Hook onFinServicioPost: encadenar siguiente cruce</div>
+      <div class="diagram-sub-label">Cuando termina un servicio — enviar al siguiente a cruzar la zona</div>
 <pre class="mermaid">
 flowchart TD
-    A([onFinServicioPost — seguridad]) --> B{hay nuevo cliente\nen PS tras pop de cola?}
-    B -->|No — cola estaba vacía| Z([FIN: sin acción])
-    B -->|Sí| C[sacar cliente del PS temporalmente]
-    C --> C2[proximoFinSvc = null · servidor = LIBRE · clienteEnServicio = null]
-    C2 --> D[zonaSeguridad = OCUPADO · clienteEnZona = cliente]
-    D --> D2["_eventosExtra.zs = ahora + sortear(tCruce)"]
-    D2 --> Z2([FIN: cliente va a cruzar ZS])
+    A([Terminó un servicio — seguridad activa]) --> B{¿Había alguien en la cola que pasó al servidor?}
+    B -->|No — la cola estaba vacía| Z([Fin — sin acción])
+    B -->|Sí| C[Ese cliente sale del servidor temporalmente]
+    C --> C2[El servidor vuelve a quedar libre y sin cliente asignado]
+    C2 --> D[El cliente pasa a cruzar la zona de seguridad]
+    D --> D2[Se sortea cuánto tarda en cruzar y se agenda el fin del cruce]
+    D2 --> Z2([Fin — cliente cruzando la zona])
 </pre>
     </div>
   </section>
@@ -325,28 +368,26 @@ flowchart TD
   <section id="servidor-salida">
     <div class="section-head">
       <span class="badge badge-mod">modificadores/descanso.js</span>
-      <h2>Evento SALIDA SERVIDOR — <code>onEvento_servidor_salida</code></h2>
+      <h2>Descanso — el servidor se va — <code>onEvento_servidor_salida</code></h2>
       <p class="desc">
-        El servidor inicia su período de descanso de duración <code>ΔD</code>. Se activan los
-        flags <code>_servidorPresente = false</code> y <code>_servidorAusente = true</code>,
-        lo que hace que el bucle principal ignore el fin de servicio mientras el servidor está
-        ausente. Si hay un cliente siendo atendido, su tiempo de servicio restante se guarda en
-        <code>_tiempoRestante</code> y el cliente permanece en el PS congelado.
+        El servidor empieza su período de descanso. A partir de este momento el loop principal
+        deja de tener en cuenta el fin de servicio, lo que congela al cliente que estaba siendo
+        atendido (si había uno) hasta que el servidor vuelva. Se sortea la duración del descanso
+        y se agenda el regreso.
       </p>
     </div>
     <div class="diagram-wrap">
 <pre class="mermaid">
 flowchart TD
-    A([SALIDA SERVIDOR]) --> B[tiempoActual = _eventosExtra.servidor_salida]
-    B --> B2[_eventosExtra.servidor_salida = null]
-    B2 --> C[_servidorPresente = false · _servidorAusente = true]
-    C --> D["sortear ΔD\n_eventosExtra.servidor_llegada = ahora + ΔD"]
-    D --> E{clienteEnServicio\n!= null?}
-    E -->|Sí — hay cliente en PS| F["_tiempoRestante = proximoFinSvc - ahora\n(PS queda congelado)"]
-    E -->|No — PS vacío| G[sin acción extra]
-    F --> H["Bus.emitir SALIDA SERVIDOR"]
+    A([El servidor se va a descansar]) --> B[El reloj avanza al momento en que se va]
+    B --> B2[Se marca al servidor como ausente]
+    B2 --> C[Se sortea cuánto dura el descanso y se agenda el regreso]
+    C --> D{¿Había un cliente siendo atendido?}
+    D -->|"Sí — queda congelado en el servidor"| F[Se guarda cuánto tiempo de servicio le faltaba a ese cliente]
+    D -->|No — el servidor se fue con el PS vacío| G[Sin acción extra]
+    F --> H[Se registra el evento en la tabla]
     G --> H
-    H --> Z([FIN])
+    H --> Z([Fin])
 </pre>
     </div>
   </section>
@@ -357,34 +398,31 @@ flowchart TD
   <section id="servidor-llegada">
     <div class="section-head">
       <span class="badge badge-mod">modificadores/descanso.js</span>
-      <h2>Evento LLEGADA SERVIDOR — <code>onEvento_servidor_llegada</code></h2>
+      <h2>Descanso — el servidor vuelve — <code>onEvento_servidor_llegada</code></h2>
       <p class="desc">
-        El servidor regresa del descanso. Se restauran los flags de presencia y se agenda el
-        próximo ciclo de trabajo (<code>ΔT</code>). Si había un cliente congelado en el PS,
-        su servicio se reanuda con el tiempo restante guardado. Si no hay cliente en PS pero
-        hay cola, se atiende al siguiente. Si no hay nadie, el PS queda libre.
+        El servidor regresa de su descanso. Se sortea cuánto tiempo va a trabajar antes del
+        próximo descanso y se agenda esa salida. Luego se retoma la actividad: si había un
+        cliente congelado se reanuda su servicio con el tiempo que le faltaba; si la cola tiene
+        gente se atiende al primero; si no hay nadie el servidor espera libre.
       </p>
     </div>
     <div class="diagram-wrap">
 <pre class="mermaid">
 flowchart TD
-    A([LLEGADA SERVIDOR]) --> B[tiempoActual = _eventosExtra.servidor_llegada]
-    B --> B2[_eventosExtra.servidor_llegada = null]
-    B2 --> C[_servidorPresente = true · _servidorAusente = false]
-    C --> D["sortear ΔT\n_eventosExtra.servidor_salida = ahora + ΔT"]
-    D --> E{clienteEnServicio\n!= null?}
-    E -->|Sí — cliente congelado| F[reanudar servicio]
-    F --> F2[proximoFinSvc = ahora + _tiempoRestante]
-    F2 --> F3[cliente.tiempoInicioServicio = ahora · servidor = OCUPADO]
-    E -->|No| G{cola.length > 0?}
-    G -->|Sí| H[siguiente = cola.shift]
-    H --> H2[siguiente.tiempoInicioServicio = ahora · servidor = OCUPADO]
-    H2 --> H3["proximoFinSvc = ahora + sortear(tS)"]
-    G -->|No| I[servidor = LIBRE]
-    F3 --> J["Bus.emitir LLEGADA SERVIDOR"]
-    H3 --> J
+    A([El servidor vuelve del descanso]) --> B[El reloj avanza al momento en que regresa]
+    B --> B2[Se marca al servidor como presente]
+    B2 --> C[Se sortea cuánto tiempo trabaja antes del próximo descanso y se agenda]
+    C --> D{¿Había un cliente congelado siendo atendido?}
+    D -->|Sí| F[Se reanuda el servicio de ese cliente con el tiempo que le faltaba]
+    F --> F2[Se agenda el fin de servicio con ese tiempo restante]
+    D -->|No| G{¿Hay alguien esperando en la cola?}
+    G -->|Sí| H[El primero de la cola pasa a ser atendido]
+    H --> H2[Se sortea la duración del servicio y se agenda el fin]
+    G -->|No| I[El servidor queda libre y esperando]
+    F2 --> J[Se registra el evento en la tabla]
+    H2 --> J
     I --> J
-    J --> Z([FIN])
+    J --> Z([Fin])
 </pre>
     </div>
   </section>
@@ -395,32 +433,30 @@ flowchart TD
   <section id="llegada-b">
     <div class="section-head">
       <span class="badge badge-mod">modificadores/prioridades.js</span>
-      <h2>Evento LLEGADA B — <code>onEvento_llegada_B</code></h2>
+      <h2>Prioridades — llegada tipo B — <code>onEvento_llegada_B</code></h2>
       <p class="desc">
-        Canal independiente de llegadas para clientes Tipo B (<code>prioridad = 0</code>).
-        Replica la lógica de <code>procesarLlegada()</code> sin pasar por los hooks de llegada
-        (no necesita interacción con otros modificadores). Al ordenar la cola por prioridad
-        descendente, los Tipo A (<code>prioridad = 1</code>) siempre quedan delante de los B.
-        El próximo evento <code>llegada_B</code> se reagenda con el intervalo <code>tLL_B</code>
-        configurado.
+        Los clientes de tipo B llegan por un canal independiente con su propio intervalo de
+        llegada. Tienen menor prioridad que los tipo A, así que si hay alguien de tipo A en la
+        cola siempre queda adelante. La lógica es la misma que para una llegada normal: si el
+        servidor está libre lo atiende de inmediato, si no espera en la cola en su lugar
+        correspondiente.
       </p>
     </div>
     <div class="diagram-wrap">
 <pre class="mermaid">
 flowchart TD
-    A([LLEGADA B]) --> B[tiempoActual = _eventosExtra.llegada_B]
-    B --> B2["clienteIdCounter++ · crear cliente B {prioridad: 0}"]
-    B2 --> D{servidor == LIBRE?}
-    D -->|Sí| E[servidor = OCUPADO]
-    E --> E2[clienteEnServicio = cliente]
-    E2 --> E3[proximoFinSvc = ahora + tS]
-    D -->|No| F[cola.push cliente B]
-    F --> F2[cola.sort desc prioridad]
-    F2 --> F3[A quedan delante de B]
+    A([Llega un cliente tipo B]) --> B[El reloj avanza al momento de esa llegada]
+    B --> B2[Se crea el cliente tipo B con baja prioridad]
+    B2 --> D{¿El servidor está libre?}
+    D -->|Sí| E[El servidor pasa a estar ocupado]
+    E --> E2[El cliente tipo B empieza a ser atendido de inmediato]
+    E2 --> E3[Se sortea la duración del servicio y se agenda el fin]
+    D -->|No| F[El cliente tipo B se agrega a la cola]
+    F --> F2[La cola se reordena: los tipo A quedan siempre delante de los tipo B]
     E3 --> G
-    F3 --> G
-    G["_eventosExtra.llegada_B = ahora + tLL_B"] --> H["Bus.emitir LLEGADA B #id"]
-    H --> Z([FIN])
+    F2 --> G
+    G[Se sortea cuándo llega el próximo cliente tipo B y se agenda] --> H[Se registra el evento en la tabla]
+    H --> Z([Fin])
 </pre>
     </div>
   </section>
