@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Diagrama de Flujo — Modificador Descanso (Problema N°2)</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #FFB6E1 0%, #DDA0DD 50%, #FFD1DC 100%);
+      min-height: 100vh;
+      padding: 30px 20px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #fff;
+      font-size: 1.6em;
+      margin-bottom: 4px;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #fff0ff;
+      font-size: 0.95em;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: #FFF8E7;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      padding: 30px;
+      max-width: 980px;
+      margin: 0 auto 30px auto;
+    }
+
+    .card h2 {
+      color: #DDA0DD;
+      font-size: 1.1em;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #f0c8e8;
+    }
+
+    .mermaid {
+      display: flex;
+      justify-content: center;
+    }
+
+    .legend {
+      background: #fff0f8;
+      border: 1px solid #f0c8e8;
+      border-radius: 10px;
+      padding: 16px 20px;
+      max-width: 980px;
+      margin: 0 auto;
+    }
+
+    .legend h3 {
+      color: #9b6fa0;
+      font-size: 0.95em;
+      margin-bottom: 10px;
+    }
+
+    .legend-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px;
+    }
+
+    .legend-item {
+      font-size: 0.85em;
+      color: #666;
+    }
+
+    .legend-item strong {
+      color: #9b6fa0;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Diagrama de Flujo — Modificador Descanso</h1>
+  <p class="subtitle">Problema N°2: servidor que trabaja ΔT segundos y descansa ΔD segundos en ciclos</p>
+
+  <!-- Diagrama principal -->
+  <div class="card">
+    <h2>Flujo completo de eventos</h2>
+    <div class="mermaid">
+flowchart TD
+    START(["▶ Inicio de simulación"])
+    INIT["Inicializar modificador\n───────────────────\n_servidorAusente = false\nservidor_salida ← t + ΔT"]
+    LOOP(["🔄 Ciclo de simulación\n— próximo evento —"])
+
+    START --> INIT --> LOOP
+
+    LOOP --> EV{¿Qué evento\nes el próximo?}
+
+    EV -->|"servidor_salida\n(fin período trabajo)"| SAL
+    EV -->|"servidor_llegada\n(fin descanso)"| LLE
+    EV -->|"Llegada de\ncliente"| ARR
+    EV -->|"Fin de\nservicio"| FIN
+
+    %% ── SALIDA DEL SERVIDOR ───────────────────────────────────
+    subgraph BLOQUE_SAL["  EVENTO: SALIDA SERVIDOR  "]
+      SAL["_servidorAusente = true\nProgramar servidor_llegada\n← t + ΔD"]
+      SAL --> SAL_Q{"PS = LIBRE?"}
+      SAL_Q -->|"Sí"| SAL_A["PS ← AUSENTE\n(bloquea nuevas atenciones)"]
+      SAL_Q -->|"No\n(OCUPADO)"| SAL_B["Servicio en curso continúa\n(motor no tomará el siguiente\ncuando termine)"]
+    end
+
+    SAL_A --> LOG_SAL["📋 Registrar fila:\nSALIDA SERVIDOR"] --> LOOP
+    SAL_B --> LOG_SAL
+
+    %% ── LLEGADA DEL SERVIDOR ──────────────────────────────────
+    subgraph BLOQUE_LLE["  EVENTO: LLEGADA SERVIDOR  "]
+      LLE["_servidorAusente = false\nProgramar próximo servidor_salida\n← t + ΔT"]
+      LLE --> LLE_Q{"PS = AUSENTE\no LIBRE?"}
+      LLE_Q -->|"Sí"| LLE_COLA{"¿Cola\nvacía?"}
+      LLE_Q -->|"No\n(OCUPADO)"| LLE_OC["Al terminar el servicio actual\nel motor tomará normalmente\nel siguiente de la cola"]
+      LLE_COLA -->|"No"| LLE_AT["Tomar primer cliente de cola\nPS ← OCUPADO\nProgramar fin servicio"]
+      LLE_COLA -->|"Sí"| LLE_LI["PS ← LIBRE"]
+    end
+
+    LLE_AT --> LOG_LLE["📋 Registrar fila:\nLLEGADA SERVIDOR"] --> LOOP
+    LLE_LI --> LOG_LLE
+    LLE_OC --> LOG_LLE
+
+    %% ── LLEGADA DE CLIENTE ────────────────────────────────────
+    subgraph BLOQUE_ARR["  EVENTO: LLEGADA CLIENTE  "]
+      ARR_Q{"PS = LIBRE?"}
+      ARR_Q -->|"Sí"| ARR_AT["PS ← OCUPADO\nAtender cliente\nProgramar fin servicio"]
+      ARR_Q -->|"No\n(OCUPADO o AUSENTE)"| ARR_CO["Cliente → COLA\n(espera hasta que servidor\nregrese y PS quede libre)"]
+    end
+
+    ARR --> ARR_Q
+    ARR_AT --> LOG_ARR["📋 Registrar fila:\nLLEGADA #id"] --> LOOP
+    ARR_CO --> LOG_ARR
+
+    %% ── FIN DE SERVICIO ───────────────────────────────────────
+    subgraph BLOQUE_FIN["  EVENTO: FIN DE SERVICIO  "]
+      FIN_Q{"_servidorAusente\n= true?"}
+      FIN_Q -->|"Sí\n(servidor ausente)"| FIN_AU["PS ← AUSENTE\nNo tomar siguiente de cola\n(esperará el regreso del servidor)"]
+      FIN_Q -->|"No\n(servidor presente)"| FIN_NQ{"¿Cola\nvacía?"}
+      FIN_NQ -->|"No"| FIN_AT["Tomar primer cliente de cola\nPS ← OCUPADO\nProgramar fin servicio"]
+      FIN_NQ -->|"Sí"| FIN_LI["PS ← LIBRE"]
+    end
+
+    FIN --> FIN_Q
+    FIN_AU --> LOG_FIN["📋 Registrar fila:\nFIN SERVICIO #id"] --> LOOP
+    FIN_AT --> LOG_FIN
+    FIN_LI --> LOG_FIN
+
+    %% Estilos
+    style START fill:#DDA0DD,color:#fff,stroke:#DDA0DD
+    style LOOP  fill:#DDA0DD,color:#fff,stroke:#DDA0DD
+    style INIT  fill:#FFF8E7,stroke:#DDA0DD,color:#555
+    style EV    fill:#fde8ff,stroke:#DDA0DD,color:#555
+
+    style BLOQUE_SAL fill:#fff0f8,stroke:#e8b0e8
+    style BLOQUE_LLE fill:#fff0f8,stroke:#e8b0e8
+    style BLOQUE_ARR fill:#fff0f8,stroke:#e8b0e8
+    style BLOQUE_FIN fill:#fff0f8,stroke:#e8b0e8
+
+    style SAL_A  fill:#ffe0f0,stroke:#DDA0DD,color:#555
+    style SAL_B  fill:#fff8e1,stroke:#e8c878,color:#555
+    style LLE_AT fill:#e0ffe8,stroke:#88cc88,color:#555
+    style LLE_LI fill:#e0ffe8,stroke:#88cc88,color:#555
+    style FIN_AU fill:#ffe0f0,stroke:#DDA0DD,color:#555
+    style FIN_AT fill:#e0ffe8,stroke:#88cc88,color:#555
+    style FIN_LI fill:#e0ffe8,stroke:#88cc88,color:#555
+    style ARR_AT fill:#e0ffe8,stroke:#88cc88,color:#555
+    style ARR_CO fill:#fff8e1,stroke:#e8c878,color:#555
+    </div>
+  </div>
+
+  <!-- Ciclo del servidor -->
+  <div class="card">
+    <h2>Ciclo de vida del servidor</h2>
+    <div class="mermaid">
+stateDiagram-v2
+    direction LR
+
+    [*] --> LIBRE : Inicio
+
+    LIBRE --> OCUPADO : Llega cliente\n(PS libre)
+    LIBRE --> AUSENTE : servidor_salida\ndispara
+
+    OCUPADO --> LIBRE : Fin servicio\n(cola vacía,\nservidor presente)
+    OCUPADO --> OCUPADO : Fin servicio\n(toma siguiente de cola,\nservidor presente)
+    OCUPADO --> AUSENTE : Fin servicio\n(servidor ausente,\ncola vacía o no)
+
+    AUSENTE --> LIBRE : servidor_llegada\ndispara\n(cola vacía)
+    AUSENTE --> OCUPADO : servidor_llegada\ndispara\n(hay cola)
+    </div>
+  </div>
+
+  <!-- Leyenda -->
+  <div class="legend">
+    <h3>Referencias de parámetros</h3>
+    <div class="legend-grid">
+      <div class="legend-item"><strong>ΔT</strong> — Duración del período de trabajo del servidor (seg)</div>
+      <div class="legend-item"><strong>ΔD</strong> — Duración del período de descanso (seg)</div>
+      <div class="legend-item"><strong>_servidorAusente</strong> — Flag booleano en el estado de la simulación</div>
+      <div class="legend-item"><strong>servidor_salida</strong> — Evento extra: momento en que el servidor se va</div>
+      <div class="legend-item"><strong>servidor_llegada</strong> — Evento extra: momento en que el servidor regresa</div>
+      <div class="legend-item"><strong>PS</strong> — Puesto de Servicio</div>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      themeVariables: {
+        primaryColor:       '#fde8ff',
+        primaryTextColor:   '#555',
+        primaryBorderColor: '#DDA0DD',
+        lineColor:          '#DDA0DD',
+        secondaryColor:     '#fff0f8',
+        tertiaryColor:      '#FFF8E7',
+        fontSize:           '14px',
+      },
+      flowchart: { curve: 'basis', padding: 20 },
+    });
+  </script>
+</body>
+</html>

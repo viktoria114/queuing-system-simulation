@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Diagrama de Flujo — Modificador Prioridades (Problema N°4)</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(
+          135deg,
+          #ffb6e1 0%,
+          #dda0dd 50%,
+          #ffd1dc 100%
+        );
+        min-height: 100vh;
+        padding: 30px 20px;
+      }
+
+      h1 {
+        text-align: center;
+        color: #fff;
+        font-size: 1.6em;
+        margin-bottom: 4px;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      .subtitle {
+        text-align: center;
+        color: #fff0ff;
+        font-size: 0.95em;
+        margin-bottom: 24px;
+      }
+
+      .card {
+        background: #fff8e7;
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        padding: 30px;
+        max-width: 980px;
+        margin: 0 auto 30px auto;
+      }
+
+      .card h2 {
+        color: #dda0dd;
+        font-size: 1.1em;
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #f0c8e8;
+      }
+
+      .mermaid {
+        display: flex;
+        justify-content: center;
+      }
+
+      .legend {
+        background: #fff0f8;
+        border: 1px solid #f0c8e8;
+        border-radius: 10px;
+        padding: 16px 20px;
+        max-width: 980px;
+        margin: 0 auto;
+      }
+
+      .legend h3 {
+        color: #9b6fa0;
+        font-size: 0.95em;
+        margin-bottom: 10px;
+      }
+
+      .legend-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 8px;
+      }
+
+      .legend-item {
+        font-size: 0.85em;
+        color: #666;
+      }
+
+      .legend-item strong {
+        color: #9b6fa0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Diagrama de Flujo — Modificador Prioridades</h1>
+    <p class="subtitle">
+      Problema N°4: dos flujos de clientes (A: prioridad alta, B: prioridad
+      normal)
+    </p>
+
+    <!-- Diagrama principal -->
+    <div class="card">
+      <h2>Flujo completo de eventos</h2>
+      <div class="mermaid">
+        flowchart TD START(["▶ Inicio de simulación"]) INIT["Inicializar
+        modificador\n───────────────────────────\nllegada_B ← t +
+        ΔtLL_B\nRegistrar hook onLlegada → marcar A\nRegistrar
+        onEvento_llegada_B"] LOOP(["🔄 Ciclo de simulación\n— próximo evento
+        —"]) START --> INIT --> LOOP LOOP --> EV{¿Qué evento\nes el próximo?} EV
+        -->|"llegada_A\n(canal principal\ndel motor)"| A_HOOK EV
+        -->|"llegada_B\n(evento extra)"| B_EV EV -->|"Fin de\nservicio"| FIN %%
+        ── LLEGADA TIPO A ──────────────────────────────────────── subgraph
+        BLOQUE_A[" EVENTO: LLEGADA CLIENTE A "] A_HOOK["Hook onLlegada
+        dispara:\n• tipo ← 'A'\n• prioridad ← 1\n• label ← 'LLEGADA A #id'"]
+        A_HOOK --> A_Q{"PS = LIBRE?"} A_Q -->|"Sí"| A_AT["PS ← OCUPADO\nAtender
+        cliente A\nProgramar fin servicio"] A_Q -->|"No\n(OCUPADO)"|
+        A_CO["Cliente A → COLA\nReordenar cola\n(A antes que B)"] end A_AT -->
+        PROX_A["Próxima llegada A\n← t + ΔtLL_A"] A_CO --> PROX_A PROX_A -->
+        LOG_A["📋 Registrar fila:\nLLEGADA A #id"] --> LOOP %% ── LLEGADA TIPO B
+        ──────────────────────────────────────── subgraph BLOQUE_B[" EVENTO:
+        LLEGADA CLIENTE B "] B_EV["Crear cliente B:\n• tipo ← 'B'\n• prioridad ←
+        0"] B_EV --> B_Q{"PS = LIBRE?"} B_Q -->|"Sí"| B_AT["PS ←
+        OCUPADO\nAtender cliente B\nProgramar fin servicio"] B_Q
+        -->|"No\n(OCUPADO)"| B_CO["Cliente B → COLA\nReordenar cola\n(A antes
+        que B)"] end PROX_B["Próxima llegada B\n← t + ΔtLL_B"] B_AT --> PROX_B
+        B_CO --> PROX_B PROX_B --> LOG_B["📋 Registrar fila:\nLLEGADA B #id"]
+        --> LOOP %% ── FIN DE SERVICIO ───────────────────────────────────────
+        subgraph BLOQUE_FIN[" EVENTO: FIN DE SERVICIO "] FIN_Q{"¿Cola\nvacía?"}
+        FIN_Q -->|"No"| FIN_PRI["Tomar primer cliente de
+        cola\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nSi hay A y B → A primero\n(prioridad
+        1 > prioridad 0)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nPS ← OCUPADO\nProgramar
+        fin servicio"] FIN_Q -->|"Sí"| FIN_LI["PS ← LIBRE"] end FIN --> FIN_Q
+        FIN_PRI --> LOG_FIN["📋 Registrar fila:\nFIN SERVICIO #id"] --> LOOP
+        FIN_LI --> LOG_FIN %% Estilos style START
+        fill:#DDA0DD,color:#fff,stroke:#DDA0DD style LOOP
+        fill:#DDA0DD,color:#fff,stroke:#DDA0DD style INIT
+        fill:#FFF8E7,stroke:#DDA0DD,color:#555 style EV
+        fill:#fde8ff,stroke:#DDA0DD,color:#555 style BLOQUE_A
+        fill:#e8f4ff,stroke:#88aae8 style BLOQUE_B fill:#fff0f8,stroke:#e8b0e8
+        style BLOQUE_FIN fill:#f0ffe8,stroke:#88cc88 style A_AT
+        fill:#dceeff,stroke:#88aae8,color:#555 style A_CO
+        fill:#fff8e1,stroke:#e8c878,color:#555 style B_AT
+        fill:#fde8ff,stroke:#DDA0DD,color:#555 style B_CO
+        fill:#fff8e1,stroke:#e8c878,color:#555 style FIN_PRI
+        fill:#e0ffe8,stroke:#88cc88,color:#555 style FIN_LI
+        fill:#e0ffe8,stroke:#88cc88,color:#555
+      </div>
+    </div>
+
+    <!-- Diagrama de ordenamiento de cola -->
+    <div class="card">
+      <h2>Lógica de ordenamiento de la cola (prioridad)</h2>
+      <div class="mermaid">
+        flowchart LR ENCOLAR(["Cliente llega\na la cola"]) ENCOLAR -->
+        ADD["Agregar cliente\nal final de la cola"] ADD --> SORT["Reordenar
+        cola\npor prioridad descendente\n(sort desc)"] SORT --> RESULT["Cola
+        resultante:\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n① Clientes A (prioridad =
+        1)\n② Clientes B (prioridad = 0)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\nDentro
+        del mismo tipo:\norden de llegada (FIFO)"] RESULT --> DESPACHO subgraph
+        DESPACHO["Despacho (fin de servicio)"] D1["PS queda libre"] D1 -->
+        D2{"¿Cola\nvacía?"} D2 -->|"No"| D3["Tomar cola[0]\n→ siempre el
+        de\nmayor prioridad"] D2 -->|"Sí"| D4["PS ← LIBRE"] end style ENCOLAR
+        fill:#DDA0DD,color:#fff,stroke:#DDA0DD style RESULT
+        fill:#FFF8E7,stroke:#DDA0DD,color:#555 style SORT
+        fill:#fde8ff,stroke:#DDA0DD,color:#555 style D3
+        fill:#e0ffe8,stroke:#88cc88,color:#555 style D4
+        fill:#e0ffe8,stroke:#88cc88,color:#555
+      </div>
+    </div>
+
+    <!-- Ejemplo de cola mixta -->
+    <div class="card">
+      <h2>Ejemplo: llegadas simultáneas mezcladas</h2>
+      <div class="mermaid">
+        flowchart LR E1["Arriban en orden:\nB#1 → A#2 → B#3 → A#4 → B#5"] E1 -->
+        COLA["Cola después de\nreordenar:\n\nA#2 prioridad 1 ◀ primero\nA#4
+        prioridad 1\nB#1 prioridad 0\nB#3 prioridad 0\nB#5 prioridad 0 ◀
+        último"] COLA --> SERV["Orden de atención:\n1° A#2\n2° A#4\n3° B#1\n4°
+        B#3\n5° B#5"] style E1 fill:#FFF8E7,stroke:#DDA0DD,color:#555 style COLA
+        fill:#fde8ff,stroke:#DDA0DD,color:#555 style SERV
+        fill:#e0ffe8,stroke:#88cc88,color:#555
+      </div>
+    </div>
+
+    <!-- Leyenda -->
+    <div class="legend">
+      <h3>Referencias de parámetros</h3>
+      <div class="legend-grid">
+        <div class="legend-item">
+          <strong>ΔtLL_A</strong> — Intervalo de llegada de clientes tipo A
+          (seg) — input "Tiempo de Llegada"
+        </div>
+        <div class="legend-item">
+          <strong>ΔtLL_B</strong> — Intervalo de llegada de clientes tipo B
+          (seg) — input "Intervalo llegada tipo B"
+        </div>
+        <div class="legend-item">
+          <strong>prioridad A = 1</strong> — Alta prioridad (se atienden primero
+          en la cola)
+        </div>
+        <div class="legend-item">
+          <strong>prioridad B = 0</strong> — Prioridad normal (se atienden
+          después de los A)
+        </div>
+        <div class="legend-item">
+          <strong>llegada_B</strong> — Evento extra del motor para el flujo de
+          tipo B
+        </div>
+        <div class="legend-item">
+          <strong>onLlegada hook</strong> — Se ejecuta antes del procesamiento
+          de cada llegada A
+        </div>
+      </div>
+    </div>
+
+    <script>
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: "base",
+        themeVariables: {
+          primaryColor: "#fde8ff",
+          primaryTextColor: "#555",
+          primaryBorderColor: "#DDA0DD",
+          lineColor: "#DDA0DD",
+          secondaryColor: "#fff0f8",
+          tertiaryColor: "#FFF8E7",
+          fontSize: "14px",
+        },
+        flowchart: { curve: "basis", padding: 20 },
+      });
+    </script>
+  </body>
+</html>
