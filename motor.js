@@ -252,6 +252,13 @@ function motorIniciar(params) {
   }
 
   HookRegistry.ejecutar("onIniciar", estado);
+
+  // Aplicar V(0) DESPUÉS de los hooks onIniciar para sobreescribir
+  // los valores que los modificadores pusieron como estado "vacío".
+  if (window.vectorInicial) {
+    window.vectorInicial.aplicar(estado, params);
+  }
+
   Bus.emitir("inicio", estado);
   paso();
 }

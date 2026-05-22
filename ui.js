@@ -377,7 +377,15 @@ function actualizarModoTiempo(key, checked) {
 
 document.addEventListener("DOMContentLoaded", () => {
 
+  // Inicializar los listeners del Vector Inicial V(0)
+  if (window.vectorInicial) window.vectorInicial.inicializarUI();
+
   Bus.on("fila", imprimirFila);
+
+  // Imprimir la fila V(0) como primer evento de la tabla
+  Bus.on("inicio", (estado) => {
+    imprimirFila({ evento: "V(0) — INICIO", hora: 0, estado });
+  });
 
   Bus.on("fin", (estado) => {
     imprimirEstadisticas(estado);
