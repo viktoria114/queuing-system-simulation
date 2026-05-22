@@ -64,6 +64,8 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 3rem 0; }
 <nav>
   <div class="nav-title">Diagramas de Flujo</div>
 
+  <a href="#overview" style="color:#f8fafc;font-weight:700;font-size:.82rem;padding:.5rem .7rem;background:#1e3a5f;border-radius:5px;margin-bottom:.6rem;display:block;">Vista general del sistema</a>
+
   <div class="nav-section">Inicialización</div>
   <a href="#vi-aplicar">Vector Inicial — aplicar V(0)</a>
 
@@ -83,6 +85,60 @@ hr { border: none; border-top: 1px solid #e2e8f0; margin: 3rem 0; }
 <main>
   <h1>Diagramas de Flujo — Simulador de Colas</h1>
   <p class="subtitle">Lógica de cada evento del motor de simulación y sus modificadores.</p>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- 0. VISTA GENERAL                                           -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="overview">
+    <div class="section-head">
+      <h2>Vista general del sistema</h2>
+      <p class="desc">
+        Panorama completo del simulador: desde que el usuario configura los parámetros hasta que
+        la simulación termina y se muestran las estadísticas. El corazón es el bucle de eventos
+        que se repite eligiendo siempre el próximo evento más cercano en el tiempo. Los
+        modificadores (abandono, zona de seguridad, descanso, prioridades) se enchufan a ese
+        bucle generando sus propios eventos y reaccionando a los del motor.
+      </p>
+    </div>
+    <div class="diagram-wrap">
+<pre class="mermaid">
+flowchart TD
+    A([El usuario abre el simulador]) --> B[Configura parámetros · tiempos · modificadores activos]
+    B --> C[Edita el Vector Inicial si quiere arrancar con cola o servidor ocupado]
+    C --> D[Presiona Iniciar]
+
+    D --> E[Se inicializa el estado del sistema]
+    E --> F[Los modificadores activos se preparan y registran sus acciones]
+    F --> G[Se aplica el Vector Inicial — colas · servidor · hora de inicio]
+    G --> H[Se muestra la fila V-0 en la tabla]
+
+    H --> LOOP{¿El próximo evento ocurre\nantes de que termine la simulación?}
+
+    LOOP -->|No — se agotó el tiempo| Z[Se muestran las estadísticas finales]
+    Z --> FIN([Fin])
+
+    LOOP -->|Sí — llegada de cliente| EV1[Procesar llegada]
+    LOOP -->|Sí — fin de servicio| EV2[Procesar fin de servicio]
+    LOOP -->|Sí — evento de modificador| EV3{¿Qué modificador?}
+
+    EV3 --> M1[Abandono — un cliente pierde la paciencia y se va]
+    EV3 --> M2[Zona de Seguridad — alguien termina de cruzar y pasa al servidor]
+    EV3 --> M3[Descanso — el servidor se va o vuelve]
+    EV3 --> M4[Prioridades — llega un cliente tipo B]
+
+    EV1 --> R[Se registra el evento en la tabla y se espera un instante para animar]
+    EV2 --> R
+    M1 --> R
+    M2 --> R
+    M3 --> R
+    M4 --> R
+
+    R --> LOOP
+</pre>
+    </div>
+  </section>
+
+  <hr>
 
   <!-- ══════════════════════════════════════════════════════════ -->
   <!-- 1. LOOP PRINCIPAL                                          -->
