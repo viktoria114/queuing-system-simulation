@@ -901,3 +901,165 @@ button:disabled {
   vertical-align: middle;
   margin-right: 2px;
 }
+
+/* ─── SELECTOR NÚMERO DE SERVIDORES ──────────────────────────── */
+.server-selector {
+  margin-bottom: 16px;
+}
+
+.selector-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #DDA0DD;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+
+.server-count-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.srv-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.1em;
+  font-weight: 700;
+  background: #f0e8f0;
+  color: #bba0cc;
+  border: 2px solid #e8c8e8;
+  box-shadow: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.srv-btn:hover:not(.active) {
+  background: #fde8ff;
+  color: #DDA0DD;
+  border-color: #DDA0DD;
+  transform: translateY(-1px);
+  box-shadow: none;
+}
+
+.srv-btn.active {
+  background: linear-gradient(135deg, #FFB6E1, #DDA0DD);
+  color: white;
+  border-color: #DDA0DD;
+  box-shadow: 0 3px 10px rgba(221, 160, 221, 0.45);
+}
+
+/* ─── SELECTOR TIPO DE COLA ──────────────────────────────────── */
+.queue-type-section {
+  margin-bottom: 14px;
+  padding: 12px 12px 10px;
+  background: #fde8ff;
+  border: 1px solid #e8c8e8;
+  border-radius: 10px;
+}
+
+.queue-type-grid {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.queue-type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border: 2px solid #e8c8e8;
+  border-radius: 8px;
+  cursor: pointer;
+  background: white;
+  transition: all 0.2s;
+  flex: 1;
+}
+
+.queue-type-card:hover {
+  border-color: #DDA0DD;
+  background: #fdf5ff;
+  transform: translateY(-1px);
+}
+
+.queue-type-card.selected {
+  border-color: #DDA0DD;
+  background: #f5e0ff;
+  box-shadow: 0 2px 8px rgba(221, 160, 221, 0.35);
+}
+
+.queue-type-card img {
+  width: 100%;
+  height: 52px;
+  object-fit: contain;
+}
+
+.queue-type-card span {
+  font-size: 10px;
+  color: #9b6fa0;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.queue-type-card.selected span {
+  color: #c060d0;
+}
+
+/* ─── PESTAÑAS PS ────────────────────────────────────────────── */
+.ps-tab-headers {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+
+.ps-tab-btn {
+  flex: 1;
+  padding: 8px 0;
+  font-size: 0.9em;
+  font-weight: 700;
+  background: #f0e8f0;
+  color: #bba0cc;
+  border: 1.5px solid #e8c8e8;
+  border-radius: 8px;
+  box-shadow: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: auto;
+}
+
+.ps-tab-btn:hover:not(.active) {
+  background: #fde8ff;
+  color: #DDA0DD;
+  border-color: #DDA0DD;
+  transform: translateY(-1px);
+  box-shadow: none;
+}
+
+.ps-tab-btn.active {
+  background: linear-gradient(135deg, #FFB6E1, #DDA0DD);
+  color: white;
+  border-color: #DDA0DD;
+  box-shadow: 0 3px 10px rgba(221, 160, 221, 0.3);
+}
+
+/* ─── SECCIÓN TIEMPO DE LLEGADA (bloqueada según tipo de cola) ── */
+.tll-section.field-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.tll-section.field-disabled h5::after {
+  content: " — no aplica";
+  font-size: 10px;
+  font-weight: 400;
+  color: #bba0cc;
+  text-transform: none;
+  letter-spacing: 0;
+}

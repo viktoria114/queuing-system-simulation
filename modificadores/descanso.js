@@ -87,9 +87,10 @@ window.modificador_descanso = {
         // Había un cliente esperando en el PS: reanudar con el tiempo restante
         const restante = e.clienteEnServicio._tiempoRestante ?? e.tS;
         e.clienteEnServicio._tiempoRestante      = null;
-        e.clienteEnServicio.tiempoInicioServicio = e.tiempoActual; // reinicio del reloj de espera
+        e.clienteEnServicio.tiempoInicioServicio = e.tiempoActual;
         e.proximoEventoFinServicio = e.tiempoActual + restante;
         e.servidor.estado = "OCUPADO";
+        // PS sigue ocupado; _servidorOcupadoDesde ya estaba seteado desde que entró el cliente
       } else if (e.cola.length > 0) {
         // No había cliente en PS pero hay cola: atender el siguiente
         const siguiente = e.cola.shift();
@@ -98,6 +99,7 @@ window.modificador_descanso = {
         e.servidor.estado               = "OCUPADO";
         const duracion = sortearTiempo(e.tS, e.randomParams?.tS);
         e.proximoEventoFinServicio      = e.tiempoActual + duracion;
+        e.stats._servidorOcupadoDesde   = e.tiempoActual; // PS pasa de LIBRE a OCUPADO
       } else {
         // Sin clientes en PS ni en cola: servidor libre
         e.servidor.estado = "LIBRE";

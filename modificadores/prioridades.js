@@ -5,14 +5,8 @@
 //   Tipo A — prioridad alta (prioridad = 1): siempre se atienden antes que B.
 //   Tipo B — prioridad normal (prioridad = 0).
 //
-// Arquitectura de dos flujos:
-//   Flujo A: usa el canal principal de motor.js
-//            (proximoEventoLlegada, intervalo = tLL del input principal).
-//   Flujo B: usa el evento extra "llegada_B"
-//            (intervalo = paramsModificadores.prioridades, input secundario).
-//
-// La cola ya se ordena por prioridad descendente en motor.js (sort desc),
-// por lo que los A siempre se atienden antes que los B sin lógica adicional.
+// Los clientes B ahora pasan por los hooks onLlegada y onLlegadaPost,
+// por lo que desvío y zona de seguridad los afectan igual que a los A.
 //
 // Parámetros:
 //   tLL (input principal)              = ΔtLL tipo A
@@ -27,19 +21,20 @@ window.modificador_prioridades = {
     // Arrancar el flujo independiente de clientes tipo B
     estado._eventosExtra.llegada_B = estado.tiempoActual + tLL_B;
 
-    // ── Hook: marcar cada cliente que llega por el flujo principal como Tipo A ──
-    // Se ejecuta en onLlegada antes de encolar/servir, para que la cola
-    // los ordene con prioridad = 1 (mayor que los B con prioridad = 0).
+    // ── Hook: marcar cada cliente del flujo principal como Tipo A ──
+    // Si el cliente ya viene marcado como "B" (viene de onEvento_llegada_B),
+    // no lo sobreescribimos — así los hooks de desvío/seguridad funcionan
+    // correctamente para ambos tipos.
     HookRegistry.registrar("onLlegada", "prioridades", ({ cliente }) => {
+      if (cliente.tipo === "B") return; // ya está tipado, no sobreescribir
       cliente.tipo           = "A";
-      cliente.prioridad      = 1; // mayor prioridad → se atiende antes que B
+      cliente.prioridad      = 1;
       cliente._labelOverride = `LLEGADA A #${cliente.id}`;
-      // No retorna false: deja que motor.js procese la llegada normalmente.
     });
 
     // ── Evento: llegada de un cliente tipo B ─────────────────────
-    // Replica la lógica de procesarLlegada() de motor.js pero para tipo B.
-    // No usa el canal principal porque tLL_B es independiente de tLL_A.
+    // Ahora ejecuta los hooks onLlegada y onLlegadaPost para que
+    // desvío, seguridad y abandono funcionen igual que para los A.
     HookRegistry.registrar("onEvento_llegada_B", "prioridades", (estado) => {
       estado.tiempoActual = estado._eventosExtra.llegada_B;
       estado.clienteIdCounter++;
@@ -48,28 +43,41 @@ window.modificador_prioridades = {
         id:                   estado.clienteIdCounter,
         tiempoLlegada:        estado.tiempoActual,
         tiempoInicioServicio: null,
-        prioridad:            0, // prioridad baja: se atiende después de los A
+        prioridad:            0,
         tipo:                 "B",
         _labelOverride:       `LLEGADA B #${estado.clienteIdCounter}`,
       };
 
-      if (estado.servidor.estado === "LIBRE") {
-        // PS libre → atender directamente (igual que en procesarLlegada)
-        estado.servidor.estado           = "OCUPADO";
-        cliente.tiempoInicioServicio     = estado.tiempoActual;
-        estado.clienteEnServicio         = cliente;
-        estado.proximoEventoFinServicio  = estado.tiempoActual + estado.tS;
-      } else {
-        // PS ocupado → encolar y reordenar; los A quedan delante de los B
-        estado.cola.push(cliente);
-        estado.cola.sort((a, b) => b.prioridad - a.prioridad);
+      // Ejecutar onLlegada — desvío y seguridad pueden interceptar
+      const continuar = HookRegistry.ejecutar("onLlegada", { estado, cliente });
+
+      if (continuar !== false) {
+        if (estado.servidor.estado === "LIBRE") {
+          estado.servidor.estado          = "OCUPADO";
+          cliente.tiempoInicioServicio    = estado.tiempoActual;
+          estado.clienteEnServicio        = cliente;
+          const duracion = sortearTiempo(estado.tS, estado.randomParams?.tS);
+          estado.proximoEventoFinServicio = estado.tiempoActual + duracion;
+          estado.stats._servidorOcupadoDesde = estado.tiempoActual;
+        } else {
+          estado.cola.push(cliente);
+          estado.cola.sort((a, b) => b.prioridad - a.prioridad);
+        }
       }
 
       // Programar la siguiente llegada B
       const tB = estado.paramsModificadores?.prioridades ?? 45;
       estado._eventosExtra.llegada_B = estado.tiempoActual + tB;
 
-      Bus.emitir("fila", { evento: cliente._labelOverride, hora: estado.tiempoActual, estado });
+      // onLlegadaPost permite que abandono asigne tiempoLimite a los B en cola
+      HookRegistry.ejecutar("onLlegadaPost", { estado, cliente });
+
+      Bus.emitir("fila", {
+        evento: cliente._labelOverride,
+        hora:   estado.tiempoActual,
+        estado,
+        meta:   { tipo: "llegada", intervalo: null },
+      });
     });
   },
 };

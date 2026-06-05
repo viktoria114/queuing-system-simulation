@@ -157,6 +157,15 @@ function imprimirEstadisticas(estado) {
     ? (s.tiempoEsperaTotal / s.clientesAtendidos).toFixed(1)
     : 0;
 
+  // Cerrar el período de ocupación si el PS aún estaba ocupado al terminar
+  let tiempoOcupado = s.tiempoOcupado ?? 0;
+  if (s._servidorOcupadoDesde !== null && s._servidorOcupadoDesde !== undefined) {
+    tiempoOcupado += estado.tiempoActual - s._servidorOcupadoDesde;
+  }
+  const utilizacion = estado.tiempoTotal > 0
+    ? ((tiempoOcupado / estado.tiempoTotal) * 100).toFixed(1)
+    : "0.0";
+
   const right = document.getElementById("infoRight");
   if (!right) return;
 
@@ -173,8 +182,8 @@ function imprimirEstadisticas(estado) {
     ["Clientes atendidos",   s.clientesAtendidos],
     ["Clientes abandonaron", s.clientesAbandonaron],
     ["Espera promedio",      `${promEspera}s`],
+    ["Ocupación del PS",     `${utilizacion}%`],
   ];
-  // clientesDesviados solo existe si el modificador desvío estuvo activo
   if (s.clientesDesviados !== undefined) {
     filas.push(["Clientes desviados", s.clientesDesviados]);
     filas.push(["Procesados / Desviados", `${s.clientesAtendidos} / ${s.clientesDesviados}`]);
@@ -258,6 +267,7 @@ function imprimirEncabezadoTabla() {
     mkTh("Fin Servicio"),
     mkTh("Cola"),
     mkTh("Puesto de Servicio"),
+    mkTh("T. Espera"),
   );
 
   // Columnas extra: la primera recibe "sep-left" para separador visual.
@@ -283,11 +293,20 @@ function imprimirEncabezadoTabla() {
 // Agrega una fila a la tabla por cada evento procesado.
 // Recibe { evento, hora, estado } emitido por el motor via Bus.
 // Misma lógica de columnas extras que imprimirEncabezadoTabla.
-function imprimirFila({ evento, hora, estado }) {
+function imprimirFila({ evento, hora, estado, meta }) {
   const tbody = document.getElementById("eventBody");
   if (!tbody) return;
 
   const tr = document.createElement("tr");
+
+  // Celda T. Espera: muestra espera del cliente en FIN SERVICIO, vacío en el resto
+  const tdEspera = document.createElement("td");
+  if (meta?.tipo === "finServicio" && meta.espera !== null && meta.espera !== undefined) {
+    tdEspera.textContent = formatHora(meta.espera);
+    tdEspera.title = `${meta.espera.toFixed(1)}s`;
+  } else {
+    tdEspera.textContent = "─";
+  }
 
   // Celdas base
   tr.append(
@@ -297,6 +316,7 @@ function imprimirFila({ evento, hora, estado }) {
     mkTd(formatHora(estado.proximoEventoFinServicio)),
     mkTd(estado.cola.length),
     mkTd(estado.servidor.estado),
+    tdEspera,
   );
 
   if (_hayExtras()) {
@@ -582,4 +602,373 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  initMultiPsUI();
+
 });
+
+// ─── MULTI-PS UI ─────────────────────────────────────────────────────────────
+
+let _psCount = 1;
+let _queueType = null;  // 'serie' | 'paralelo' | 'unafilavarios'
+let _activePs = 0;
+
+function initMultiPsUI() {
+  document.querySelectorAll(".srv-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      _psCount = parseInt(btn.dataset.n);
+      document.querySelectorAll(".srv-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _activePs = 0;
+      updatePsLayout();
+    });
+  });
+
+  document.querySelectorAll(".queue-type-card").forEach(card => {
+    card.addEventListener("click", () => {
+      _queueType = card.dataset.type;
+      document.querySelectorAll(".queue-type-card").forEach(c => c.classList.remove("selected"));
+      card.classList.add("selected");
+      applyQueueTypeConstraints();
+    });
+  });
+}
+
+function updatePsLayout() {
+  const queueTypeSec = document.getElementById("queueTypeSection");
+  const tabHeaders   = document.getElementById("psTabHeaders");
+  const container    = document.getElementById("psPanelsContainer");
+
+  if (_psCount === 1) {
+    queueTypeSec.style.display = "none";
+    tabHeaders.style.display   = "none";
+    _queueType = null;
+    document.querySelectorAll(".queue-type-card").forEach(c => c.classList.remove("selected"));
+    // Eliminar paneles extra
+    for (let i = 1; i <= 3; i++) {
+      document.getElementById(`psPanel_${i}`)?.remove();
+    }
+    // Asegurar que PS0 esté visible y sin bloqueo de tLL
+    const ps0 = document.getElementById("psPanel_0");
+    if (ps0) {
+      ps0.style.display = "";
+      setTllDisabled(ps0.querySelector(".tll-section"), false);
+    }
+    return;
+  }
+
+  // Múltiples servidores
+  queueTypeSec.style.display = "";
+  tabHeaders.style.display   = "flex";
+
+  // Auto-seleccionar "serie" si no hay tipo elegido
+  if (!_queueType) {
+    _queueType = "serie";
+    document.querySelector(".queue-type-card[data-type='serie']")?.classList.add("selected");
+  }
+
+  // Crear paneles faltantes
+  for (let i = 1; i < _psCount; i++) {
+    if (!document.getElementById(`psPanel_${i}`)) {
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = buildPsPanel(i);
+      const panel = wrapper.firstElementChild;
+      container.appendChild(panel);
+      attachPanelListeners(panel, i);
+    }
+  }
+  // Eliminar paneles sobrantes
+  for (let i = _psCount; i <= 3; i++) {
+    document.getElementById(`psPanel_${i}`)?.remove();
+  }
+
+  rebuildTabButtons();
+  switchToPanel(_activePs < _psCount ? _activePs : 0);
+  applyQueueTypeConstraints();
+}
+
+function rebuildTabButtons() {
+  const tabHeaders = document.getElementById("psTabHeaders");
+  tabHeaders.innerHTML = "";
+  for (let i = 0; i < _psCount; i++) {
+    const btn = document.createElement("button");
+    btn.className   = "ps-tab-btn" + (i === _activePs ? " active" : "");
+    btn.textContent = `PS${i + 1}`;
+    btn.dataset.ps  = i;
+    btn.addEventListener("click", () => {
+      _activePs = i;
+      tabHeaders.querySelectorAll(".ps-tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      switchToPanel(i);
+    });
+    tabHeaders.appendChild(btn);
+  }
+}
+
+function switchToPanel(psIndex) {
+  _activePs = psIndex;
+  for (let i = 0; i < _psCount; i++) {
+    const panel = document.getElementById(`psPanel_${i}`);
+    if (panel) panel.style.display = (i === psIndex) ? "" : "none";
+  }
+}
+
+function applyQueueTypeConstraints() {
+  for (let i = 0; i < _psCount; i++) {
+    const panel = document.getElementById(`psPanel_${i}`);
+    if (!panel) continue;
+    const tllSection = panel.querySelector(".tll-section");
+    if (!tllSection) continue;
+    // tLL se bloquea en PS2+ cuando la cola es serie o una-fila-varios-ps
+    const shouldDisable = (i > 0) && (_queueType === "serie" || _queueType === "unafilavarios");
+    setTllDisabled(tllSection, shouldDisable);
+  }
+}
+
+function setTllDisabled(tllSection, disabled) {
+  if (!tllSection) return;
+  tllSection.classList.toggle("field-disabled", disabled);
+  tllSection.querySelectorAll("input").forEach(el => {
+    el.disabled = disabled;
+  });
+}
+
+// Adjunta los listeners de modificadores y modo-switch a un panel generado dinámicamente.
+function attachPanelListeners(panel, i) {
+  const s = `_${i}`;
+
+  panel.querySelectorAll(".modificador-check").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const nombre = cb.dataset.mod;
+      const badge  = document.getElementById(`badge_${nombre}${s}`);
+      const row    = document.getElementById(`param-row_${nombre}${s}`);
+      const input  = document.getElementById(`param_${nombre}${s}`);
+
+      if (input) input.disabled = !cb.checked;
+      if (badge) {
+        badge.textContent = cb.checked ? "ON" : "OFF";
+        badge.classList.toggle("on", cb.checked);
+      }
+      if (row) {
+        row.classList.toggle("activo", cb.checked);
+        row.querySelectorAll(".modo-switch, .rango-min, .rango-max, input[type='number']").forEach(el => {
+          el.disabled = !cb.checked;
+        });
+      }
+      if (nombre === "descanso") {
+        const extra = document.getElementById(`param_descanso_trabajo${s}`);
+        if (extra) extra.disabled = !cb.checked;
+      }
+    });
+  });
+
+  panel.querySelectorAll(".modo-switch").forEach(sw => {
+    sw.addEventListener("change", () => {
+      const key     = sw.dataset.key;
+      const fijoDiv = document.getElementById(`fijo_${key}`);
+      const aleaDiv = document.getElementById(`alea_${key}`);
+      if (fijoDiv) fijoDiv.style.display = sw.checked ? "none" : "";
+      if (aleaDiv) aleaDiv.style.display = sw.checked ? ""     : "none";
+
+      const modPadre  = sw.closest(".mod-param");
+      const modActivo = modPadre ? modPadre.classList.contains("activo") : true;
+      if (modActivo) {
+        fijoDiv?.querySelectorAll("input").forEach(inp => inp.disabled =  sw.checked);
+        aleaDiv?.querySelectorAll("input").forEach(inp => inp.disabled = !sw.checked);
+      }
+    });
+  });
+}
+
+// Genera el HTML completo para un panel PS (i >= 1).
+function buildPsPanel(i) {
+  const s = `_${i}`;
+  return `
+<div class="ps-panel" id="psPanel${s}" data-ps-index="${i}">
+
+  <div class="vector-display">
+    <span class="vector-title">Vector Inicial</span>
+    <div class="vector-values">
+      <span>Hora:&nbsp;<b id="vi_disp_hora${s}">0</b></span>
+      <span class="vi-sep">|</span>
+      <span>Cola:&nbsp;<b id="vi_disp_cola${s}">0</b></span>
+      <span class="vi-sep">|</span>
+      <span>Servidor:&nbsp;<b id="vi_disp_servidor${s}">LIBRE</b></span>
+    </div>
+    <button onclick="abrirModalVector(${i})">✏ Editar Vector Inicial</button>
+  </div>
+
+  <p><strong>Parámetros de Simulación</strong></p>
+
+  <div class="modifiers" id="modifiers${s}">
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="descanso" />
+        <span>Descanso</span>
+        <span class="mod-badge" id="badge_descanso${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_descanso${s}">
+        <span class="param-label">Duración descanso ΔD (s)</span>
+        <div class="tiempo-control">
+          <div class="switch-row">
+            <span class="switch-label">Fijo</span>
+            <label class="switch">
+              <input type="checkbox" class="modo-switch" data-key="deltaD${s}" disabled />
+              <span class="slider-switch"></span>
+            </label>
+            <span class="switch-label">Aleatorio</span>
+          </div>
+          <div class="tc-fijo" id="fijo_deltaD${s}">
+            <input type="number" disabled id="param_descanso${s}" placeholder="Descanso (s)" value="60" />
+          </div>
+          <div class="tc-aleatorio" id="alea_deltaD${s}" style="display:none">
+            <input type="number" disabled class="rango-min" data-key="deltaD${s}" placeholder="Mín (s)" value="40" />
+            <input type="number" disabled class="rango-max" data-key="deltaD${s}" placeholder="Máx (s)" value="80" />
+          </div>
+        </div>
+        <span class="param-label">Duración trabajo ΔT (s)</span>
+        <div class="tiempo-control">
+          <div class="switch-row">
+            <span class="switch-label">Fijo</span>
+            <label class="switch">
+              <input type="checkbox" class="modo-switch" data-key="deltaT${s}" disabled />
+              <span class="slider-switch"></span>
+            </label>
+            <span class="switch-label">Aleatorio</span>
+          </div>
+          <div class="tc-fijo" id="fijo_deltaT${s}">
+            <input type="number" disabled id="param_descanso_trabajo${s}" placeholder="Trabajo (s)" value="30" />
+          </div>
+          <div class="tc-aleatorio" id="alea_deltaT${s}" style="display:none">
+            <input type="number" disabled class="rango-min" data-key="deltaT${s}" placeholder="Mín (s)" value="20" />
+            <input type="number" disabled class="rango-max" data-key="deltaT${s}" placeholder="Máx (s)" value="40" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="abandono" />
+        <span>Abandono</span>
+        <span class="mod-badge" id="badge_abandono${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_abandono${s}">
+        <span class="param-label">Paciencia del cliente (s)</span>
+        <div class="tiempo-control">
+          <div class="switch-row">
+            <span class="switch-label">Fijo</span>
+            <label class="switch">
+              <input type="checkbox" class="modo-switch" data-key="abandono${s}" disabled />
+              <span class="slider-switch"></span>
+            </label>
+            <span class="switch-label">Aleatorio</span>
+          </div>
+          <div class="tc-fijo" id="fijo_abandono${s}">
+            <input type="number" disabled id="param_abandono${s}" placeholder="Paciencia (s)" value="10" />
+          </div>
+          <div class="tc-aleatorio" id="alea_abandono${s}" style="display:none">
+            <input type="number" disabled class="rango-min" data-key="abandono${s}" placeholder="Mín (s)" value="5" />
+            <input type="number" disabled class="rango-max" data-key="abandono${s}" placeholder="Máx (s)" value="20" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="prioridades" />
+        <span>Prioridades</span>
+        <span class="mod-badge" id="badge_prioridades${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_prioridades${s}">
+        <span class="param-label">Intervalo llegada tipo B (s)</span>
+        <input type="number" disabled id="param_prioridades${s}" placeholder="tLL tipo B (s)" value="45" />
+      </div>
+    </div>
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="seguridad" />
+        <span>Zona de Seguridad</span>
+        <span class="mod-badge" id="badge_seguridad${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_seguridad${s}">
+        <span class="param-label">Tiempo de cruce ZS (s)</span>
+        <div class="tiempo-control">
+          <div class="switch-row">
+            <span class="switch-label">Fijo</span>
+            <label class="switch">
+              <input type="checkbox" class="modo-switch" data-key="seguridad${s}" disabled />
+              <span class="slider-switch"></span>
+            </label>
+            <span class="switch-label">Aleatorio</span>
+          </div>
+          <div class="tc-fijo" id="fijo_seguridad${s}">
+            <input type="number" disabled id="param_seguridad${s}" placeholder="Tiempo cruce ZS (s)" value="5" />
+          </div>
+          <div class="tc-aleatorio" id="alea_seguridad${s}" style="display:none">
+            <input type="number" disabled class="rango-min" data-key="seguridad${s}" placeholder="Mín (s)" value="3" />
+            <input type="number" disabled class="rango-max" data-key="seguridad${s}" placeholder="Máx (s)" value="10" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="desvio" />
+        <span>Desvío (sin cola)</span>
+        <span class="mod-badge" id="badge_desvio${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_desvio${s}">
+        <span class="param-label">Clientes que llegan con PS ocupado son desviados inmediatamente</span>
+      </div>
+    </div>
+
+  </div>
+
+  <br />
+
+  <div class="tll-section">
+    <h5>Tiempo de Llegada (s)</h5>
+    <div class="tiempo-control">
+      <div class="switch-row">
+        <span class="switch-label">Fijo</span>
+        <label class="switch">
+          <input type="checkbox" class="modo-switch" data-key="tLL${s}" />
+          <span class="slider-switch"></span>
+        </label>
+        <span class="switch-label">Aleatorio</span>
+      </div>
+      <div class="tc-fijo" id="fijo_tLL${s}">
+        <input type="number" id="tiempoLlegada${s}" value="35" />
+      </div>
+      <div class="tc-aleatorio" id="alea_tLL${s}" style="display:none">
+        <input type="number" class="rango-min" data-key="tLL${s}" placeholder="Mín (s)" value="20" />
+        <input type="number" class="rango-max" data-key="tLL${s}" placeholder="Máx (s)" value="50" />
+      </div>
+    </div>
+  </div>
+
+  <h5>Tiempo de Servicio (s)</h5>
+  <div class="tiempo-control">
+    <div class="switch-row">
+      <span class="switch-label">Fijo</span>
+      <label class="switch">
+        <input type="checkbox" class="modo-switch" data-key="tS${s}" />
+        <span class="slider-switch"></span>
+      </label>
+      <span class="switch-label">Aleatorio</span>
+    </div>
+    <div class="tc-fijo" id="fijo_tS${s}">
+      <input type="number" id="tiempoServicio${s}" value="40" />
+    </div>
+    <div class="tc-aleatorio" id="alea_tS${s}" style="display:none">
+      <input type="number" class="rango-min" data-key="tS${s}" placeholder="Mín (s)" value="25" />
+      <input type="number" class="rango-max" data-key="tS${s}" placeholder="Máx (s)" value="55" />
+    </div>
+  </div>
+
+</div>`.trim();
+}
