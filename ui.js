@@ -157,6 +157,27 @@ function imprimirEstadisticas(estado) {
     ? (s.tiempoEsperaTotal / s.clientesAtendidos).toFixed(1)
     : 0;
 
+  // Cerrar el período de ocupación si el PS aún estaba ocupado al terminar
+  let tiempoOcupado = s.tiempoOcupado ?? 0;
+  if (s._servidorOcupadoDesde !== null && s._servidorOcupadoDesde !== undefined) {
+    tiempoOcupado += estado.tiempoActual - s._servidorOcupadoDesde;
+  }
+  // Para multi-PS: los PS que aún estén ocupados al terminar no fueron cerrados;
+  // se suman aquí. La utilización se normaliza por la cantidad de PS.
+  if (estado.servidores) {
+    for (const ps of estado.servidores) {
+      if (ps._ocupadoDesde !== null) {
+        tiempoOcupado += estado.tiempoActual - ps._ocupadoDesde;
+      }
+    }
+  } else if (s._servidorOcupadoDesde !== null && s._servidorOcupadoDesde !== undefined) {
+    tiempoOcupado += estado.tiempoActual - s._servidorOcupadoDesde;
+  }
+  const numPS = estado.numServidores ?? 1;
+  const utilizacion = estado.tiempoTotal > 0
+    ? ((tiempoOcupado / (estado.tiempoTotal * numPS)) * 100).toFixed(1)
+    : "0.0";
+
   const right = document.getElementById("infoRight");
   if (!right) return;
 
@@ -173,8 +194,8 @@ function imprimirEstadisticas(estado) {
     ["Clientes atendidos",   s.clientesAtendidos],
     ["Clientes abandonaron", s.clientesAbandonaron],
     ["Espera promedio",      `${promEspera}s`],
+    ["Ocupación del PS",     `${utilizacion}%`],
   ];
-  // clientesDesviados solo existe si el modificador desvío estuvo activo
   if (s.clientesDesviados !== undefined) {
     filas.push(["Clientes desviados", s.clientesDesviados]);
     filas.push(["Procesados / Desviados", `${s.clientesAtendidos} / ${s.clientesDesviados}`]);
@@ -206,30 +227,51 @@ function mkTd(valor, mod) {
   return td;
 }
 
+// ─── HELPERS DE COLA ─────────────────────────────────────────
+
+// Devuelve la cola que alimenta al PS[i] según la topología.
+function _colaDeIdx(est, i) {
+  if (est.topologia === "paralelo") return est.colas?.[i] ?? [];
+  if (est.topologia === "serie")    return i === 0 ? est.cola : (est.servidores[i]?._cola ?? []);
+  // unafilavarios / unica: cola compartida, solo relevante para PS0
+  return i === 0 ? est.cola : [];
+}
+
+// Suma de todos los clientes en espera en el sistema (para el gráfico).
+function _totalCola(est) {
+  let total = 0;
+  const numPS = est.servidores?.length ?? 1;
+  for (let i = 0; i < numPS; i++) total += _colaDeIdx(est, i).length;
+  return total;
+}
+
 // ─── CELDA GRÁFICA ───────────────────────────────────────────
-// Muestra el estado del sistema con la simbología habitual:
 // □/■ = puesto de servicio libre/ocupado  ● = cliente en cola
-// La "panzita" (semicírculo sobre el cuadrado) indica que el servidor está presente.
-// Desaparece cuando _servidorAusente es true (descanso activo y servidor fuera).
+// Para multi-PS se muestran todos los PS seguidos del total de clientes
+// en espera (suma de todas las colas del sistema).
 function mkTdGraf(estado) {
   const td = document.createElement("td");
   td.className = "graf-td";
 
-  const wrap = document.createElement("span");
-  wrap.className = "graf-srv-wrap";
+  const numPS = estado.servidores?.length ?? 1;
 
-  if (!estado._servidorAusente) {
-    const belly = document.createElement("span");
-    belly.className = "graf-belly";
-    wrap.appendChild(belly);
+  for (let i = 0; i < numPS; i++) {
+    const ps = estado.servidores ? estado.servidores[i] : estado.servidor;
+    const wrap = document.createElement("span");
+    wrap.className = "graf-srv-wrap";
+    if (!ps._ausente) {
+      const belly = document.createElement("span");
+      belly.className = "graf-belly";
+      wrap.appendChild(belly);
+    }
+    const srv = document.createElement("span");
+    srv.className = "graf-srv" + (ps.estado === "OCUPADO" ? " busy" : "");
+    wrap.appendChild(srv);
+    td.appendChild(wrap);
   }
 
-  const srv = document.createElement("span");
-  srv.className = "graf-srv" + (estado.servidor.estado === "OCUPADO" ? " busy" : "");
-  wrap.appendChild(srv);
-  td.appendChild(wrap);
-
-  for (let i = 0; i < estado.cola.length; i++) {
+  const total = _totalCola(estado);
+  for (let j = 0; j < total; j++) {
     const cli = document.createElement("span");
     cli.className = "graf-cli";
     td.appendChild(cli);
@@ -239,10 +281,8 @@ function mkTdGraf(estado) {
 }
 
 // ─── ENCABEZADO ───────────────────────────────────────────────
-// Construye la fila de encabezados de la tabla de eventos.
-// Las columnas base siempre aparecen; las columnas de modificadores
-// solo se agregan si el modificador está activo.
-// La primera columna extra lleva clase "sep-left" para el separador visual.
+// Para 1 PS: columnas idénticas a la versión original.
+// Para N PS: reemplaza "Fin Servicio" + "Puesto de Servicio" por columnas por PS.
 function imprimirEncabezadoTabla() {
   const thead = document.getElementById("eventHead");
   if (!thead) return;
@@ -250,18 +290,21 @@ function imprimirEncabezadoTabla() {
 
   const tr = document.createElement("tr");
 
-  // Columnas base (siempre presentes)
-  tr.append(
-    mkTh("Evento"),
-    mkTh("Hora"),
-    mkTh("Próx. Llegada"),
-    mkTh("Fin Servicio"),
-    mkTh("Cola"),
-    mkTh("Puesto de Servicio"),
-  );
+  tr.append(mkTh("Evento"), mkTh("Hora"), mkTh("Próx. Llegada"));
 
-  // Columnas extra: la primera recibe "sep-left" para separador visual.
-  // sepPendiente se pone en false después del primer uso.
+  if (_psCount === 1) {
+    tr.append(mkTh("Fin Servicio"), mkTh("Cola"), mkTh("Puesto de Servicio"), mkTh("T. Espera"));
+  } else {
+    const perPS = _queueType === "serie" || _queueType === "paralelo";
+    for (let i = 0; i < _psCount; i++) {
+      tr.append(mkTh(`PS${i + 1}`), mkTh(`Fin PS${i + 1}`));
+      if (perPS) tr.append(mkTh(`Cola PS${i + 1}`));
+    }
+    // unafilavarios: una sola cola compartida al final
+    if (!perPS) tr.append(mkTh("Cola"));
+    tr.append(mkTh("T. Espera"));
+  }
+
   let sepPendiente = _hayExtras();
   const thMod = (label, mod) => {
     const th = mkTh(label, mod);
@@ -283,21 +326,46 @@ function imprimirEncabezadoTabla() {
 // Agrega una fila a la tabla por cada evento procesado.
 // Recibe { evento, hora, estado } emitido por el motor via Bus.
 // Misma lógica de columnas extras que imprimirEncabezadoTabla.
-function imprimirFila({ evento, hora, estado }) {
+function imprimirFila({ evento, hora, estado, meta }) {
   const tbody = document.getElementById("eventBody");
   if (!tbody) return;
 
   const tr = document.createElement("tr");
+
+  // Celda T. Espera: muestra espera del cliente en FIN SERVICIO, vacío en el resto
+  const tdEspera = document.createElement("td");
+  if (meta?.tipo === "finServicio" && meta.espera !== null && meta.espera !== undefined) {
+    tdEspera.textContent = formatHora(meta.espera);
+    tdEspera.title = `${meta.espera.toFixed(1)}s`;
+  } else {
+    tdEspera.textContent = "─";
+  }
 
   // Celdas base
   tr.append(
     mkTd(evento),
     mkTd(formatHora(hora)),
     mkTd(formatHora(estado.proximoEventoLlegada)),
-    mkTd(formatHora(estado.proximoEventoFinServicio)),
-    mkTd(estado.cola.length),
-    mkTd(estado.servidor.estado),
   );
+
+  const numPS = estado.servidores?.length ?? 1;
+  if (numPS === 1) {
+    // Backward compat: columnas originales para 1 PS
+    tr.append(
+      mkTd(formatHora(estado.proximoEventoFinServicio)),
+      mkTd(_totalCola(estado)),
+      mkTd(estado.servidor.estado),
+      tdEspera,
+    );
+  } else {
+    const perPS = estado.topologia === "serie" || estado.topologia === "paralelo";
+    for (const ps of estado.servidores) {
+      tr.append(mkTd(ps.estado), mkTd(formatHora(ps.tiempoFinServicio)));
+      if (perPS) tr.append(mkTd(_colaDeIdx(estado, ps.idx).length));
+    }
+    if (!perPS) tr.append(mkTd(_totalCola(estado)));
+    tr.append(tdEspera);
+  }
 
   if (_hayExtras()) {
     // La primera celda extra recibe "sep-left" igual que en el encabezado.
@@ -400,14 +468,13 @@ function validarRangos(randomParams) {
 // que se pasa a motorIniciar(). Retorna null si hay errores de validación.
 function leerParametros() {
 
-  // Leer tLL (fijo o aleatorio)
+  // tLL: llegada única al sistema, siempre desde PS0
   const cfgLL = leerParamTiempo("tLL", "tiempoLlegada");
-  // Para el header se usa el valor representativo (promedio en modo aleatorio)
   const tLL   = cfgLL.modo === "fijo" ? cfgLL.valor : (cfgLL.min + cfgLL.max) / 2;
 
-  // Leer tS (fijo o aleatorio)
-  const cfgS = leerParamTiempo("tS", "tiempoServicio");
-  const tS   = cfgS.modo === "fijo" ? cfgS.valor : (cfgS.min + cfgS.max) / 2;
+  // tS de PS0 — valor representativo para el header y backward compat
+  const cfgS0 = leerParamTiempo("tS", "tiempoServicio");
+  const tS    = cfgS0.modo === "fijo" ? cfgS0.valor : (cfgS0.min + cfgS0.max) / 2;
 
   const tiempoTotal = parseFloat(document.getElementById("tiempoSimulacion").value);
 
@@ -416,62 +483,82 @@ function leerParametros() {
     return null;
   }
 
-  const modificadoresActivos = {};
-  const paramsModificadores  = {};
+  // Validar tLL antes de continuar
+  const erroresLL = validarRangos({ tLL: cfgLL.modo === "aleatorio" ? cfgLL : null });
+  if (erroresLL.length) { erroresLL.forEach(e => logLinea(e)); return null; }
 
-  // Leer estado y parámetro numérico de cada modificador
-  document.querySelectorAll(".modificador-check").forEach(cb => {
-    const nombre = cb.dataset.mod;
-    modificadoresActivos[nombre] = cb.checked;
-    if (cb.checked) {
-      const input = document.getElementById(`param_${nombre}`);
-      paramsModificadores[nombre] = parseFloat(input?.value) || 0;
+  // ── Parámetros por PS: tS + modificadores + distribuciones ──
+  const psParams = [];
+  for (let i = 0; i < _psCount; i++) {
+    const s     = i === 0 ? "" : `_${i}`;
+    const panel = document.getElementById(`psPanel_${i}`);
+
+    const cfgSi = leerParamTiempo(`tS${s}`, `tiempoServicio${s}`);
+    const tSi   = cfgSi.modo === "fijo" ? cfgSi.valor : (cfgSi.min + cfgSi.max) / 2;
+
+    const modsI   = {};
+    const paramsI = {};
+    const randI   = { tS: cfgSi.modo === "aleatorio" ? cfgSi : null };
+
+    panel?.querySelectorAll(".modificador-check").forEach(cb => {
+      const nombre = cb.dataset.mod;
+      modsI[nombre] = cb.checked;
+      if (!cb.checked) return;
+
+      const paramInput = document.getElementById(`param_${nombre}${s}`);
+      paramsI[nombre] = parseFloat(paramInput?.value) || 0;
+
       if (nombre === "descanso") {
-        const inputT = document.getElementById("param_descanso_trabajo");
-        paramsModificadores["descanso_trabajo"] = parseFloat(inputT?.value) || 30;
+        const inputT = document.getElementById(`param_descanso_trabajo${s}`);
+        paramsI["descanso_trabajo"] = parseFloat(inputT?.value) || 30;
+        const cfgD = leerParamTiempo(`deltaD${s}`, `param_descanso${s}`);
+        const cfgT = leerParamTiempo(`deltaT${s}`, `param_descanso_trabajo${s}`);
+        randI.deltaD = cfgD.modo === "aleatorio" ? cfgD : null;
+        randI.deltaT = cfgT.modo === "aleatorio" ? cfgT : null;
+        if (cfgD.modo === "aleatorio") paramsI.descanso         = (cfgD.min + cfgD.max) / 2;
+        if (cfgT.modo === "aleatorio") paramsI.descanso_trabajo = (cfgT.min + cfgT.max) / 2;
       }
-    }
-  });
+      if (nombre === "abandono") {
+        const cfgA = leerParamTiempo(`abandono${s}`, `param_abandono${s}`);
+        randI.abandono = cfgA.modo === "aleatorio" ? cfgA : null;
+        if (cfgA.modo === "aleatorio") paramsI.abandono = (cfgA.min + cfgA.max) / 2;
+      }
+      if (nombre === "seguridad") {
+        const cfgSeg = leerParamTiempo(`seguridad${s}`, `param_seguridad${s}`);
+        randI.seguridad = cfgSeg.modo === "aleatorio" ? cfgSeg : null;
+        if (cfgSeg.modo === "aleatorio") paramsI.seguridad = (cfgSeg.min + cfgSeg.max) / 2;
+      }
+    });
 
-  // Construir randomParams para cada clave de tiempo configurable.
-  // null significa "modo fijo" para esa clave.
-  const randomParams = {};
-
-  randomParams.tLL = cfgLL.modo === "aleatorio" ? cfgLL : null;
-  randomParams.tS  = cfgS.modo  === "aleatorio" ? cfgS  : null;
-
-  if (modificadoresActivos.descanso) {
-    const cfgD = leerParamTiempo("deltaD", "param_descanso");
-    const cfgT = leerParamTiempo("deltaT", "param_descanso_trabajo");
-    randomParams.deltaD = cfgD.modo === "aleatorio" ? cfgD : null;
-    randomParams.deltaT = cfgT.modo === "aleatorio" ? cfgT : null;
-    // Actualizar paramsModificadores con valor representativo para el header
-    if (cfgD.modo === "aleatorio") paramsModificadores.descanso = (cfgD.min + cfgD.max) / 2;
-    if (cfgT.modo === "aleatorio") paramsModificadores.descanso_trabajo = (cfgT.min + cfgT.max) / 2;
+    psParams.push({ tS: tSi, randomParams: randI,
+                    modificadoresActivos: modsI, paramsModificadores: paramsI });
   }
 
-  if (modificadoresActivos.abandono) {
-    const cfgA = leerParamTiempo("abandono", "param_abandono");
-    randomParams.abandono = cfgA.modo === "aleatorio" ? cfgA : null;
-    if (cfgA.modo === "aleatorio") paramsModificadores.abandono = (cfgA.min + cfgA.max) / 2;
+  // Validar rangos por PS
+  for (let i = 0; i < _psCount; i++) {
+    const errs = validarRangos(psParams[i].randomParams);
+    if (errs.length) { errs.forEach(e => logLinea(`PS${i + 1}: ${e}`)); return null; }
   }
 
-  if (modificadoresActivos.seguridad) {
-    const cfgSeg = leerParamTiempo("seguridad", "param_seguridad");
-    randomParams.seguridad = cfgSeg.modo === "aleatorio" ? cfgSeg : null;
-    if (cfgSeg.modo === "aleatorio") paramsModificadores.seguridad = (cfgSeg.min + cfgSeg.max) / 2;
-  }
-
-  // Validar que todos los rangos aleatorios sean coherentes
-  const errores = validarRangos(randomParams);
-  if (errores.length) {
-    errores.forEach(e => logLinea(e));
-    return null;
-  }
+  // Backward compat: globales = PS0
+  const modificadoresActivos = psParams[0]?.modificadoresActivos ?? {};
+  const paramsModificadores  = psParams[0]?.paramsModificadores  ?? {};
+  const randomParams = {
+    tLL: cfgLL.modo === "aleatorio" ? cfgLL : null,
+    ...(psParams[0]?.randomParams ?? {}),
+  };
 
   const velocidad = parseInt(document.getElementById("velocidad")?.value) ?? 120;
+  const topologia = _queueType ?? "unica";
 
-  return { tLL, tS, tiempoTotal, modificadoresActivos, paramsModificadores, randomParams, velocidad };
+  return {
+    tLL, tS, tiempoTotal,
+    modificadoresActivos, paramsModificadores, randomParams,
+    velocidad,
+    numServidores: _psCount,
+    topologia,
+    psParams,
+  };
 }
 
 // ─── INICIAR / DETENER ───────────────────────────────────────
@@ -582,4 +669,373 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  initMultiPsUI();
+
 });
+
+// ─── MULTI-PS UI ─────────────────────────────────────────────────────────────
+
+let _psCount = 1;
+let _queueType = null;  // 'serie' | 'paralelo' | 'unafilavarios'
+let _activePs = 0;
+
+function initMultiPsUI() {
+  document.querySelectorAll(".srv-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      _psCount = parseInt(btn.dataset.n);
+      document.querySelectorAll(".srv-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _activePs = 0;
+      updatePsLayout();
+    });
+  });
+
+  document.querySelectorAll(".queue-type-card").forEach(card => {
+    card.addEventListener("click", () => {
+      _queueType = card.dataset.type;
+      document.querySelectorAll(".queue-type-card").forEach(c => c.classList.remove("selected"));
+      card.classList.add("selected");
+      applyQueueTypeConstraints();
+    });
+  });
+}
+
+function updatePsLayout() {
+  const queueTypeSec = document.getElementById("queueTypeSection");
+  const tabHeaders   = document.getElementById("psTabHeaders");
+  const container    = document.getElementById("psPanelsContainer");
+
+  if (_psCount === 1) {
+    queueTypeSec.style.display = "none";
+    tabHeaders.style.display   = "none";
+    _queueType = null;
+    document.querySelectorAll(".queue-type-card").forEach(c => c.classList.remove("selected"));
+    // Eliminar paneles extra
+    for (let i = 1; i <= 3; i++) {
+      document.getElementById(`psPanel_${i}`)?.remove();
+    }
+    // Asegurar que PS0 esté visible y sin bloqueo de tLL
+    const ps0 = document.getElementById("psPanel_0");
+    if (ps0) {
+      ps0.style.display = "";
+      setTllDisabled(ps0.querySelector(".tll-section"), false);
+    }
+    return;
+  }
+
+  // Múltiples servidores
+  queueTypeSec.style.display = "";
+  tabHeaders.style.display   = "flex";
+
+  // Auto-seleccionar "serie" si no hay tipo elegido
+  if (!_queueType) {
+    _queueType = "serie";
+    document.querySelector(".queue-type-card[data-type='serie']")?.classList.add("selected");
+  }
+
+  // Crear paneles faltantes
+  for (let i = 1; i < _psCount; i++) {
+    if (!document.getElementById(`psPanel_${i}`)) {
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = buildPsPanel(i);
+      const panel = wrapper.firstElementChild;
+      container.appendChild(panel);
+      attachPanelListeners(panel, i);
+    }
+  }
+  // Eliminar paneles sobrantes
+  for (let i = _psCount; i <= 3; i++) {
+    document.getElementById(`psPanel_${i}`)?.remove();
+  }
+
+  rebuildTabButtons();
+  switchToPanel(_activePs < _psCount ? _activePs : 0);
+  applyQueueTypeConstraints();
+}
+
+function rebuildTabButtons() {
+  const tabHeaders = document.getElementById("psTabHeaders");
+  tabHeaders.innerHTML = "";
+  for (let i = 0; i < _psCount; i++) {
+    const btn = document.createElement("button");
+    btn.className   = "ps-tab-btn" + (i === _activePs ? " active" : "");
+    btn.textContent = `PS${i + 1}`;
+    btn.dataset.ps  = i;
+    btn.addEventListener("click", () => {
+      _activePs = i;
+      tabHeaders.querySelectorAll(".ps-tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      switchToPanel(i);
+    });
+    tabHeaders.appendChild(btn);
+  }
+}
+
+function switchToPanel(psIndex) {
+  _activePs = psIndex;
+  for (let i = 0; i < _psCount; i++) {
+    const panel = document.getElementById(`psPanel_${i}`);
+    if (panel) panel.style.display = (i === psIndex) ? "" : "none";
+  }
+}
+
+function applyQueueTypeConstraints() {
+  for (let i = 0; i < _psCount; i++) {
+    const panel = document.getElementById(`psPanel_${i}`);
+    if (!panel) continue;
+    const tllSection = panel.querySelector(".tll-section");
+    if (!tllSection) continue;
+    // tLL se bloquea en PS2+ cuando la cola es serie o una-fila-varios-ps
+    const shouldDisable = (i > 0) && (_queueType === "serie" || _queueType === "unafilavarios");
+    setTllDisabled(tllSection, shouldDisable);
+  }
+}
+
+function setTllDisabled(tllSection, disabled) {
+  if (!tllSection) return;
+  tllSection.classList.toggle("field-disabled", disabled);
+  tllSection.querySelectorAll("input").forEach(el => {
+    el.disabled = disabled;
+  });
+}
+
+// Adjunta los listeners de modificadores y modo-switch a un panel generado dinámicamente.
+function attachPanelListeners(panel, i) {
+  const s = `_${i}`;
+
+  panel.querySelectorAll(".modificador-check").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const nombre = cb.dataset.mod;
+      const badge  = document.getElementById(`badge_${nombre}${s}`);
+      const row    = document.getElementById(`param-row_${nombre}${s}`);
+      const input  = document.getElementById(`param_${nombre}${s}`);
+
+      if (input) input.disabled = !cb.checked;
+      if (badge) {
+        badge.textContent = cb.checked ? "ON" : "OFF";
+        badge.classList.toggle("on", cb.checked);
+      }
+      if (row) {
+        row.classList.toggle("activo", cb.checked);
+        row.querySelectorAll(".modo-switch, .rango-min, .rango-max, input[type='number']").forEach(el => {
+          el.disabled = !cb.checked;
+        });
+      }
+      if (nombre === "descanso") {
+        const extra = document.getElementById(`param_descanso_trabajo${s}`);
+        if (extra) extra.disabled = !cb.checked;
+      }
+    });
+  });
+
+  panel.querySelectorAll(".modo-switch").forEach(sw => {
+    sw.addEventListener("change", () => {
+      const key     = sw.dataset.key;
+      const fijoDiv = document.getElementById(`fijo_${key}`);
+      const aleaDiv = document.getElementById(`alea_${key}`);
+      if (fijoDiv) fijoDiv.style.display = sw.checked ? "none" : "";
+      if (aleaDiv) aleaDiv.style.display = sw.checked ? ""     : "none";
+
+      const modPadre  = sw.closest(".mod-param");
+      const modActivo = modPadre ? modPadre.classList.contains("activo") : true;
+      if (modActivo) {
+        fijoDiv?.querySelectorAll("input").forEach(inp => inp.disabled =  sw.checked);
+        aleaDiv?.querySelectorAll("input").forEach(inp => inp.disabled = !sw.checked);
+      }
+    });
+  });
+}
+
+// Genera el HTML completo para un panel PS (i >= 1).
+function buildPsPanel(i) {
+  const s = `_${i}`;
+  return `
+<div class="ps-panel" id="psPanel${s}" data-ps-index="${i}">
+
+  <div class="vector-display">
+    <span class="vector-title">Vector Inicial</span>
+    <div class="vector-values">
+      <span>Hora:&nbsp;<b id="vi_disp_hora${s}">0</b></span>
+      <span class="vi-sep">|</span>
+      <span>Cola:&nbsp;<b id="vi_disp_cola${s}">0</b></span>
+      <span class="vi-sep">|</span>
+      <span>Servidor:&nbsp;<b id="vi_disp_servidor${s}">LIBRE</b></span>
+    </div>
+    <button onclick="abrirModalVector(${i})">✏ Editar Vector Inicial</button>
+  </div>
+
+  <p><strong>Parámetros de Simulación</strong></p>
+
+  <div class="modifiers" id="modifiers${s}">
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="descanso" />
+        <span>Descanso</span>
+        <span class="mod-badge" id="badge_descanso${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_descanso${s}">
+        <span class="param-label">Duración descanso ΔD (s)</span>
+        <div class="tiempo-control">
+          <div class="switch-row">
+            <span class="switch-label">Fijo</span>
+            <label class="switch">
+              <input type="checkbox" class="modo-switch" data-key="deltaD${s}" disabled />
+              <span class="slider-switch"></span>
+            </label>
+            <span class="switch-label">Aleatorio</span>
+          </div>
+          <div class="tc-fijo" id="fijo_deltaD${s}">
+            <input type="number" disabled id="param_descanso${s}" placeholder="Descanso (s)" value="60" />
+          </div>
+          <div class="tc-aleatorio" id="alea_deltaD${s}" style="display:none">
+            <input type="number" disabled class="rango-min" data-key="deltaD${s}" placeholder="Mín (s)" value="40" />
+            <input type="number" disabled class="rango-max" data-key="deltaD${s}" placeholder="Máx (s)" value="80" />
+          </div>
+        </div>
+        <span class="param-label">Duración trabajo ΔT (s)</span>
+        <div class="tiempo-control">
+          <div class="switch-row">
+            <span class="switch-label">Fijo</span>
+            <label class="switch">
+              <input type="checkbox" class="modo-switch" data-key="deltaT${s}" disabled />
+              <span class="slider-switch"></span>
+            </label>
+            <span class="switch-label">Aleatorio</span>
+          </div>
+          <div class="tc-fijo" id="fijo_deltaT${s}">
+            <input type="number" disabled id="param_descanso_trabajo${s}" placeholder="Trabajo (s)" value="30" />
+          </div>
+          <div class="tc-aleatorio" id="alea_deltaT${s}" style="display:none">
+            <input type="number" disabled class="rango-min" data-key="deltaT${s}" placeholder="Mín (s)" value="20" />
+            <input type="number" disabled class="rango-max" data-key="deltaT${s}" placeholder="Máx (s)" value="40" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="abandono" />
+        <span>Abandono</span>
+        <span class="mod-badge" id="badge_abandono${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_abandono${s}">
+        <span class="param-label">Paciencia del cliente (s)</span>
+        <div class="tiempo-control">
+          <div class="switch-row">
+            <span class="switch-label">Fijo</span>
+            <label class="switch">
+              <input type="checkbox" class="modo-switch" data-key="abandono${s}" disabled />
+              <span class="slider-switch"></span>
+            </label>
+            <span class="switch-label">Aleatorio</span>
+          </div>
+          <div class="tc-fijo" id="fijo_abandono${s}">
+            <input type="number" disabled id="param_abandono${s}" placeholder="Paciencia (s)" value="10" />
+          </div>
+          <div class="tc-aleatorio" id="alea_abandono${s}" style="display:none">
+            <input type="number" disabled class="rango-min" data-key="abandono${s}" placeholder="Mín (s)" value="5" />
+            <input type="number" disabled class="rango-max" data-key="abandono${s}" placeholder="Máx (s)" value="20" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="prioridades" />
+        <span>Prioridades</span>
+        <span class="mod-badge" id="badge_prioridades${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_prioridades${s}">
+        <span class="param-label">Intervalo llegada tipo B (s)</span>
+        <input type="number" disabled id="param_prioridades${s}" placeholder="tLL tipo B (s)" value="45" />
+      </div>
+    </div>
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="seguridad" />
+        <span>Zona de Seguridad</span>
+        <span class="mod-badge" id="badge_seguridad${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_seguridad${s}">
+        <span class="param-label">Tiempo de cruce ZS (s)</span>
+        <div class="tiempo-control">
+          <div class="switch-row">
+            <span class="switch-label">Fijo</span>
+            <label class="switch">
+              <input type="checkbox" class="modo-switch" data-key="seguridad${s}" disabled />
+              <span class="slider-switch"></span>
+            </label>
+            <span class="switch-label">Aleatorio</span>
+          </div>
+          <div class="tc-fijo" id="fijo_seguridad${s}">
+            <input type="number" disabled id="param_seguridad${s}" placeholder="Tiempo cruce ZS (s)" value="5" />
+          </div>
+          <div class="tc-aleatorio" id="alea_seguridad${s}" style="display:none">
+            <input type="number" disabled class="rango-min" data-key="seguridad${s}" placeholder="Mín (s)" value="3" />
+            <input type="number" disabled class="rango-max" data-key="seguridad${s}" placeholder="Máx (s)" value="10" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mod-item">
+      <label class="mod-header">
+        <input type="checkbox" class="modificador-check" data-mod="desvio" />
+        <span>Desvío (sin cola)</span>
+        <span class="mod-badge" id="badge_desvio${s}">OFF</span>
+      </label>
+      <div class="mod-param" id="param-row_desvio${s}">
+        <span class="param-label">Clientes que llegan con PS ocupado son desviados inmediatamente</span>
+      </div>
+    </div>
+
+  </div>
+
+  <br />
+
+  <div class="tll-section">
+    <h5>Tiempo de Llegada (s)</h5>
+    <div class="tiempo-control">
+      <div class="switch-row">
+        <span class="switch-label">Fijo</span>
+        <label class="switch">
+          <input type="checkbox" class="modo-switch" data-key="tLL${s}" />
+          <span class="slider-switch"></span>
+        </label>
+        <span class="switch-label">Aleatorio</span>
+      </div>
+      <div class="tc-fijo" id="fijo_tLL${s}">
+        <input type="number" id="tiempoLlegada${s}" value="35" />
+      </div>
+      <div class="tc-aleatorio" id="alea_tLL${s}" style="display:none">
+        <input type="number" class="rango-min" data-key="tLL${s}" placeholder="Mín (s)" value="20" />
+        <input type="number" class="rango-max" data-key="tLL${s}" placeholder="Máx (s)" value="50" />
+      </div>
+    </div>
+  </div>
+
+  <h5>Tiempo de Servicio (s)</h5>
+  <div class="tiempo-control">
+    <div class="switch-row">
+      <span class="switch-label">Fijo</span>
+      <label class="switch">
+        <input type="checkbox" class="modo-switch" data-key="tS${s}" />
+        <span class="slider-switch"></span>
+      </label>
+      <span class="switch-label">Aleatorio</span>
+    </div>
+    <div class="tc-fijo" id="fijo_tS${s}">
+      <input type="number" id="tiempoServicio${s}" value="40" />
+    </div>
+    <div class="tc-aleatorio" id="alea_tS${s}" style="display:none">
+      <input type="number" class="rango-min" data-key="tS${s}" placeholder="Mín (s)" value="25" />
+      <input type="number" class="rango-max" data-key="tS${s}" placeholder="Máx (s)" value="55" />
+    </div>
+  </div>
+
+</div>`.trim();
+}

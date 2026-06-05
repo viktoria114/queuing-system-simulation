@@ -1,78 +1,71 @@
 // ============================================================
-// modificadores/abandono.js — Modificador: Abandono de cola
+// modificadores/abandono.js — Modificador: Abandono de cola (per-PS)
 // ============================================================
-// Problema 1 / Problema 2: si un cliente espera más de SC segundos
-// en la cola, abandona el sistema sin ser atendido.
-// SC (paciencia) puede ser fijo o aleatorio (uniforme) por cliente.
+// Si un cliente espera más de SC segundos en la cola de un PS,
+// abandona sin ser atendido. Funciona independientemente para cada
+// PS que tenga el modificador activo.
 //
-// Parámetros:
-//   paramsModificadores.abandono = valor fijo de paciencia (s)
-//   randomParams.abandono        = { modo, min, max }
-//
-// Cada cliente que entra a la cola recibe un tiempoLimite absoluto
-// (tiempoLlegada + paciencia sorteada). El próximo abandono se agenda
-// en estado._eventosExtra.abandono = min(tiempoLimite de todos en cola).
+// Clave de evento en _eventosExtra: "abandono_ps{i}"
 // ============================================================
 
 window.modificador_abandono = {
 
-  iniciar(estado) {
-    if (!HookRegistry.hooks["onEvento_abandono"]) HookRegistry.hooks["onEvento_abandono"] = [];
+  iniciar(estado, psIdx = 0) {
+    const evKey = `abandono_ps${psIdx}`;
+    if (!HookRegistry.hooks[`onEvento_${evKey}`]) HookRegistry.hooks[`onEvento_${evKey}`] = [];
 
-    // Recalcula y agenda el próximo evento de abandono buscando
-    // el tiempoLimite más próximo entre todos los clientes en cola.
-    // Si no hay clientes con límite definido, borra el evento.
-    function agendarProximoAbandono(e) {
-      const min = e.cola
-        .filter(c => c.tiempoLimite !== undefined)
-        .reduce((m, c) => Math.min(m, c.tiempoLimite), Infinity);
-      e._eventosExtra.abandono = isFinite(min) ? min : null;
+    const ps = estado.servidores[psIdx];
+
+    function pacienciaBase() {
+      return ps.paramsModificadores?.abandono ?? estado.paramsModificadores?.abandono ?? 10;
+    }
+    function randomAbandono() {
+      return ps.randomParams?.abandono ?? estado.randomParams?.abandono;
     }
 
-    // Hook: al terminar de procesar una llegada, si el cliente quedó en cola
-    // (no fue al PS ni fue desviado), asignarle un tiempoLimite sorteado.
-    HookRegistry.registrar("onLlegadaPost", "abandono", ({ estado: e, cliente }) => {
-      const enCola = e.cola.find(c => c.id === cliente.id);
-      if (enCola) {
-        const pacienciaBase = e.paramsModificadores?.abandono ?? 10;
-        // Sortear paciencia: puede ser fija o uniforme U[min,max]
-        const paciencia = sortearTiempo(pacienciaBase, e.randomParams?.abandono);
-        enCola.tiempoLimite = enCola.tiempoLlegada + paciencia;
-        agendarProximoAbandono(e);
-      }
-    });
+    function agendarProximoAbandono(e) {
+      const cola = e.colaPS(psIdx);
+      const min  = cola
+        .filter(c => c[`tiempoLimite_ps${psIdx}`] !== undefined)
+        .reduce((m, c) => Math.min(m, c[`tiempoLimite_ps${psIdx}`]), Infinity);
+      e._eventosExtra[evKey] = isFinite(min) ? min : null;
+    }
 
-    // Hook: cuando termina un servicio y el siguiente cliente pasa al PS,
-    // reagendar el próximo abandono con la cola actualizada.
-    HookRegistry.registrar("onFinServicioPost", "abandono", ({ estado: e }) => {
+    // Hook: cuando un cliente entra a la cola de ESTE PS, asignarle paciencia
+    HookRegistry.registrar("onEncolar", `abandono_ps${psIdx}`, ({ estado: e, cliente, psIdx: pIdx }) => {
+      if (pIdx !== psIdx) return;
+      const paciencia = sortearTiempo(pacienciaBase(), randomAbandono());
+      cliente[`tiempoLimite_ps${psIdx}`] = e.tiempoActual + paciencia;
       agendarProximoAbandono(e);
     });
 
-    // Evento: se dispara cuando llega el momento del próximo abandono.
-    // Puede haber varios clientes que alcanzaron su límite al mismo tiempo;
-    // se eliminan todos los que tengan tiempoLimite <= ahora.
-    HookRegistry.registrar("onEvento_abandono", "abandono", (e) => {
-      const ahora = e._eventosExtra.abandono;
-      e.tiempoActual = ahora;
-      e._eventosExtra.abandono = null; // limpiar antes de reagendar
+    // Hook: al terminar un servicio en ESTE PS, reagendar con la cola actualizada
+    HookRegistry.registrar("onFinServicioPost", `abandono_ps${psIdx}`, ({ estado: e, psIdx: pIdx }) => {
+      if (pIdx !== psIdx) return;
+      agendarProximoAbandono(e);
+    });
 
-      // Identificar todos los clientes que ya superaron su paciencia
-      const abandonan = e.cola.filter(
-        c => c.tiempoLimite !== undefined && c.tiempoLimite <= ahora
-      );
+    // Evento: procesar todos los abandonos cuyo límite llegó
+    HookRegistry.registrar(`onEvento_${evKey}`, `abandono_ps${psIdx}`, (e) => {
+      const ahora = e._eventosExtra[evKey];
+      e.tiempoActual          = ahora;
+      e._eventosExtra[evKey]  = null;
 
-      // Remover cada cliente que abandona y contabilizarlo
+      const cola     = e.colaPS(psIdx);
+      const limKey   = `tiempoLimite_ps${psIdx}`;
+      const abandonan = cola.filter(c => c[limKey] !== undefined && c[limKey] <= ahora);
+
       for (const cliente of abandonan) {
-        e.cola = e.cola.filter(c => c.id !== cliente.id);
+        const idx = cola.indexOf(cliente);
+        if (idx !== -1) cola.splice(idx, 1);
         e.stats.clientesAbandonaron++;
         Bus.emitir("fila", {
           evento: `ABANDONO #${cliente.id}`,
-          hora:   cliente.tiempoLimite,
+          hora:   cliente[limKey],
           estado: e,
         });
       }
 
-      // Reagendar con los clientes que siguen en cola
       agendarProximoAbandono(e);
     });
   },

@@ -4,261 +4,326 @@
 // ============================================================
 
 // ─── BUS DE EVENTOS ─────────────────────────────────────────
-// Sistema de publicación/suscripción (pub/sub) que desacopla el motor
-// de la interfaz gráfica. El motor emite eventos ("fila", "inicio", "fin")
-// y ui.js los escucha sin que ninguno conozca los detalles del otro.
 const Bus = {
   _listeners: {},
-
-  // Registra una función que se ejecutará cada vez que ocurra el evento.
   on(evento, fn) {
     if (!this._listeners[evento]) this._listeners[evento] = [];
     this._listeners[evento].push(fn);
   },
-
-  // Dispara el evento y llama a todas las funciones registradas para él.
   emitir(evento, datos) {
     (this._listeners[evento] || []).forEach(fn => fn(datos));
   },
-
-  // Elimina todos los listeners. Se llama al reiniciar la simulación
-  // para evitar que queden suscripciones de corridas anteriores.
-  limpiar() {
-    this._listeners = {};
-  },
+  limpiar() { this._listeners = {}; },
 };
 
 // ─── ESTADO ─────────────────────────────────────────────────
-// "estado" es el vector de estado del sistema en el método next-event-time.
-// Concentra toda la información necesaria para describir el sistema
-// en cualquier instante t y poder avanzar la simulación desde ese punto.
 let estado = {};
 
 function crearEstadoInicial(params) {
-  return {
-    tiempoActual:   0,                  // reloj de simulación (en segundos)
-    tiempoTotal:    params.tiempoTotal, // horizonte: la simulación se detiene aquí
-    tLL:            params.tLL,         // intervalo base entre llegadas sucesivas
-    tS:             params.tS,          // duración base de cada servicio
+  const numServidores = params.numServidores ?? 1;
+  const topologia     = params.topologia ?? "unica";
 
-    // Configuración de distribuciones para cada tiempo configurable.
-    // Si un campo es null → ese tiempo opera en modo fijo.
-    // Si es { modo:"aleatorio", min, max } → distribución uniforme U[min,max].
-    randomParams: params.randomParams || {},
+  const servidores = Array.from({ length: numServidores }, (_, i) => {
+    const psp = params.psParams?.[i] ?? {};
+    return {
+      idx:                  i,
+      estado:               "LIBRE",
+      clienteEnServicio:    null,
+      tiempoFinServicio:    null,
+      _ocupadoDesde:        null,
+      _ausente:             false,
+      _presente:            true,
+      tS:                   psp.tS          ?? params.tS,
+      randomParams:         psp.randomParams ?? params.randomParams ?? {},
+      modificadoresActivos: psp.modificadoresActivos ?? {},
+      paramsModificadores:  psp.paramsModificadores  ?? {},
+    };
+  });
 
-    clienteIdCounter: 0, // auto-incremental, garantiza IDs únicos por corrida
+  const est = {
+    tiempoActual:  0,
+    tiempoTotal:   params.tiempoTotal,
+    tLL:           params.tLL,
+    tS:            params.tS,
+    randomParams:  params.randomParams || {},
 
-    // Estado del Puesto de Servicio (PS)
-    servidor: {
-      estado: "LIBRE",         // "LIBRE" | "OCUPADO"
-      tiempoFinServicio: null,
-    },
+    clienteIdCounter: 0,
 
-    cola:               [],  // lista de clientes esperando, ordenada por prioridad (desc)
-    clienteEnServicio:  null, // cliente que está siendo atendido actualmente
+    numServidores,
+    topologia,
+    servidores,
 
-    // Tiempos absolutos de los dos eventos base del sistema de colas
-    proximoEventoLlegada:     null,
-    proximoEventoFinServicio: null,
+    servidor: servidores[0],
 
-    // Mapa de tiempos de eventos adicionales registrados por los modificadores.
-    // Ej: { abandono: 120, servidor_salida: 300, llegada_B: 90, zs: 75 }
-    // El bucle principal toma el mínimo de todos estos junto a los dos eventos base.
-    _eventosExtra: {},
+    cola:  [],
+    colas: topologia === "paralelo"
+           ? Array.from({ length: numServidores }, () => [])
+           : null,
 
-    // Flags de presencia del servidor (usados por el modificador de descanso).
-    // _servidorPresente = false congela el procesamiento del fin de servicio
-    // hasta que el servidor regrese de su descanso.
-    _servidorAusente:  false,
-    _servidorPresente: true,
+    proximoEventoLlegada: null,
+    _eventosExtra:        {},
 
     stats: {
-      clientesAtendidos:   0,
-      clientesAbandonaron: 0,
-      tiempoEsperaTotal:   0,
+      clientesAtendidos:     0,
+      clientesAbandonaron:   0,
+      tiempoEsperaTotal:     0,
+      tiempoOcupado:         0,
+      _servidorOcupadoDesde: null,
     },
 
-    modificadoresActivos: params.modificadoresActivos || {},
-    paramsModificadores:  params.paramsModificadores  || {},
+    // backward compat: PS0 mods accesibles desde el estado global
+    modificadoresActivos: servidores[0].modificadoresActivos,
+    paramsModificadores:  servidores[0].paramsModificadores,
 
     corriendo: false,
   };
+
+  // ── Getters de backward compat → PS0 ────────────────────────
+  Object.defineProperty(est, "clienteEnServicio", {
+    get()  { return this.servidores[0].clienteEnServicio; },
+    set(v) { this.servidores[0].clienteEnServicio = v; },
+    enumerable: true, configurable: true,
+  });
+  Object.defineProperty(est, "proximoEventoFinServicio", {
+    get()  { return this.servidores[0].tiempoFinServicio; },
+    set(v) { this.servidores[0].tiempoFinServicio = v; },
+    enumerable: true, configurable: true,
+  });
+  // _servidorPresente / _servidorAusente delegan a PS0._presente / _ausente
+  Object.defineProperty(est, "_servidorPresente", {
+    get()  { return this.servidores[0]._presente; },
+    set(v) { this.servidores[0]._presente = v; },
+    enumerable: true, configurable: true,
+  });
+  Object.defineProperty(est, "_servidorAusente", {
+    get()  { return this.servidores[0]._ausente; },
+    set(v) { this.servidores[0]._ausente = v; },
+    enumerable: true, configurable: true,
+  });
+
+  // ── Método helper accesible desde los modificadores ─────────
+  // Devuelve la cola que alimenta al PS[psIdx] según la topología.
+  est.colaPS = function(psIdx) {
+    if (this.topologia === "paralelo") return this.colas?.[psIdx] ?? [];
+    if (this.topologia === "serie" && psIdx > 0) {
+      if (!this.servidores[psIdx]._cola) this.servidores[psIdx]._cola = [];
+      return this.servidores[psIdx]._cola;
+    }
+    return this.cola;
+  };
+
+  return est;
 }
 
 // ─── HOOKS ──────────────────────────────────────────────────
-// Mecanismo de extensión que permite a los modificadores (plugins)
-// interceptar y alterar el comportamiento del motor sin modificar
-// este archivo. Cada modificador llama a HookRegistry.registrar()
-// desde su función iniciar() para "enchufarse" a un momento del ciclo.
-//
-// Si un hook en "onLlegada" retorna false, se cancela todo el
-// procesamiento estándar del evento (encolar / pasar al PS).
-// Esto lo usan: desvio (para no encolar), seguridad (para redirigir a ZS).
 const HookRegistry = {
   hooks: {
-    onIniciar:         [],  // al arrancar la simulación
-    onLlegada:         [],  // antes de encolar/servir al cliente que llegó
-    onLlegadaPost:     [],  // después de encolar/servir (o después de cancelar)
-    onFinServicio:     [],  // antes de liberar el PS
-    onFinServicioPost: [],  // después de liberar el PS y asignar el siguiente
-    onPaso:            [],  // al inicio de cada paso del bucle principal
-    onFin:             [],  // al terminar la simulación
+    onIniciar:         [],
+    onLlegada:         [],
+    onLlegadaPost:     [],
+    onEncolar:         [], // se dispara cada vez que un cliente entra a cualquier cola
+    onFinServicio:     [],
+    onFinServicioPost: [],
+    onPaso:            [],
+    onFin:             [],
   },
-
-  // Agrega una función al momento indicado. "nombre" es solo para depuración.
   registrar(momento, nombre, fn) {
     if (!this.hooks[momento]) this.hooks[momento] = [];
     this.hooks[momento].push({ nombre, fn });
   },
-
-  // Ejecuta todos los hooks del momento en orden de registro.
-  // Si alguno devuelve false, interrumpe la cadena y retorna false.
   ejecutar(momento, datos) {
     for (const hook of (this.hooks[momento] || [])) {
       if (hook.fn(datos) === false) return false;
     }
     return true;
   },
-
-  // Vacía todos los hooks al reiniciar, para que no queden
-  // registros de la corrida anterior.
   limpiar() {
     for (const key of Object.keys(this.hooks)) this.hooks[key] = [];
   },
 };
 
 // ─── GENERADOR DE TIEMPOS ALEATORIOS ────────────────────────
-// Implementa la distribución uniforme U[min, max] usada en la
-// simulación de Monte Carlo.
-// Si el modo es "fijo" (o no hay config), devuelve el valor base
-// sin sortearlo (tiempo determinístico).
-
 function sortearTiempo(base, randomConfig) {
   if (!randomConfig || randomConfig.modo !== "aleatorio") return base;
   const min = randomConfig.min ?? base;
   const max = randomConfig.max ?? base;
-  // Math.random() devuelve un valor en [0,1), por lo que el resultado
-  // está en [min, max) — distribución uniforme continua.
   return min + Math.random() * (max - min);
 }
 
 // ─── GENERADORES ────────────────────────────────────────────
-
-// Calcula el tiempo ABSOLUTO de la próxima llegada:
-// tiempoActual + intervalo sorteado (o fijo).
 function generarProximaLlegada() {
   const intervalo = sortearTiempo(estado.tLL, estado.randomParams?.tLL);
   return estado.tiempoActual + intervalo;
 }
 
-// Calcula el tiempo ABSOLUTO de fin del servicio actual:
-// tiempoActual + duración sorteada (o fija).
-function generarTiempoServicio() {
-  const duracion = sortearTiempo(estado.tS, estado.randomParams?.tS);
+function generarTiempoServicio(psIdx = 0) {
+  const ps = estado.servidores[psIdx];
+  const duracion = sortearTiempo(ps.tS, ps.randomParams?.tS);
   return estado.tiempoActual + duracion;
+}
+
+// ─── HELPERS DE PS ──────────────────────────────────────────
+
+function _colaDePS(psIdx) {
+  return estado.colaPS(psIdx);
+}
+
+function _elegirPS() {
+  if (estado.topologia === "serie") {
+    return estado.servidores[0].estado === "LIBRE" ? estado.servidores[0] : null;
+  }
+  if (estado.topologia === "paralelo") {
+    let mejorPS  = null;
+    let mejorLen = Infinity;
+    for (const ps of estado.servidores) {
+      const efectiva = (ps.estado === "LIBRE" ? 0 : 1) + (estado.colas[ps.idx]?.length ?? 0);
+      if (efectiva < mejorLen) { mejorLen = efectiva; mejorPS = ps; }
+    }
+    return mejorPS?.estado === "LIBRE" ? mejorPS : null;
+  }
+  return estado.servidores.find(ps => ps.estado === "LIBRE") ?? null;
+}
+
+function _elegirColaParalelo() {
+  let minLen = Infinity, minIdx = 0;
+  for (const ps of estado.servidores) {
+    const len = estado.colas[ps.idx].length;
+    if (len < minLen) { minLen = len; minIdx = ps.idx; }
+  }
+  return minIdx;
+}
+
+function _iniciarServicio(ps, cliente) {
+  ps.estado                    = "OCUPADO";
+  cliente.tiempoInicioServicio = estado.tiempoActual;
+  ps.clienteEnServicio         = cliente;
+  ps.tiempoFinServicio         = generarTiempoServicio(ps.idx);
+  ps._ocupadoDesde             = estado.tiempoActual;
+  if (ps.idx === 0) estado.stats._servidorOcupadoDesde = estado.tiempoActual;
+}
+
+function _acumularOcupacion(ps) {
+  if (ps._ocupadoDesde !== null) {
+    estado.stats.tiempoOcupado += estado.tiempoActual - ps._ocupadoDesde;
+    ps._ocupadoDesde = null;
+  }
+  if (ps.idx === 0) estado.stats._servidorOcupadoDesde = null;
 }
 
 // ─── EVENTOS BASE ───────────────────────────────────────────
 
-// Evento LLEGADA: procesa la llegada de un nuevo cliente al sistema.
-//
-// Lógica estándar (FCFS con prioridades):
-//   - PS libre  → el cliente entra directo al servicio.
-//   - PS ocupado → el cliente se agrega a la cola, que se reordena
-//                  por prioridad descendente (mayor prioridad = atendido antes).
-//
-// Los hooks onLlegada pueden interceptar este flujo:
-//   - Retornar false cancela encolar y servir (usado por desvio y seguridad).
-//   - Modificar cliente.prioridad o cliente._labelOverride cambia
-//     cómo se muestra y ordena el cliente.
 function procesarLlegada() {
-  estado.tiempoActual = estado.proximoEventoLlegada; // avanzar el reloj al instante de llegada
+  estado.tiempoActual = estado.proximoEventoLlegada;
   estado.clienteIdCounter++;
 
   const cliente = {
     id:                   estado.clienteIdCounter,
     tiempoLlegada:        estado.tiempoActual,
     tiempoInicioServicio: null,
-    prioridad:            0, // los modificadores (ej. prioridades.js) pueden cambiarlo
+    prioridad:            0,
   };
 
-  // Ejecutar hooks onLlegada; si alguno retorna false, no se encola ni se sirve.
   const continuar = HookRegistry.ejecutar("onLlegada", { estado, cliente });
 
+  const _intervaloDesdeLast = estado.tiempoActual - (estado._ultimaHoraLlegada ?? estado.tiempoActual);
+  estado._ultimaHoraLlegada = estado.tiempoActual;
+
   if (continuar !== false) {
-    if (estado.servidor.estado === "LIBRE") {
-      // PS libre: atención inmediata
-      estado.servidor.estado          = "OCUPADO";
-      cliente.tiempoInicioServicio    = estado.tiempoActual;
-      estado.clienteEnServicio        = cliente;
-      estado.proximoEventoFinServicio = generarTiempoServicio();
+    const psDestino = _elegirPS();
+    if (psDestino !== null) {
+      _iniciarServicio(psDestino, cliente);
     } else {
-      // PS ocupado: el cliente espera en la cola
-      estado.cola.push(cliente);
-      estado.cola.sort((a, b) => b.prioridad - a.prioridad); // reordenar por prioridad
+      const psIdx       = estado.topologia === "paralelo" ? _elegirColaParalelo() : 0;
+      const colaDestino = _colaDePS(psIdx);
+      colaDestino.push(cliente);
+      colaDestino.sort((a, b) => b.prioridad - a.prioridad);
+      HookRegistry.ejecutar("onEncolar", { estado, cliente, psIdx });
     }
   }
 
-  // La próxima llegada se genera siempre, independientemente de si
-  // el cliente fue servido, encolado o desviado.
   estado.proximoEventoLlegada = generarProximaLlegada();
   HookRegistry.ejecutar("onLlegadaPost", { estado, cliente });
 
-  Bus.emitir("fila", { evento: cliente._labelOverride || `LLEGADA #${cliente.id}`, hora: estado.tiempoActual, estado });
+  Bus.emitir("fila", {
+    evento: cliente._labelOverride || `LLEGADA #${cliente.id}`,
+    hora:   estado.tiempoActual,
+    estado,
+    meta:   { tipo: "llegada", intervalo: _intervaloDesdeLast },
+  });
 }
 
-// Evento FIN DE SERVICIO: el cliente en el PS termina de ser atendido.
-//
-// Lógica:
-//   - Hay cola → el primer cliente de la cola pasa al PS.
-//   - Cola vacía → el PS queda libre (servidor desocupado).
-//
-// Caso especial (modificador descanso): si _servidorPresente === false,
-// el servidor está en descanso y el fin de servicio queda congelado.
-// El bucle principal (paso()) ignora este evento hasta que el servidor regrese.
-function procesarFinServicio() {
-  // Guard: no procesar mientras el servidor está en descanso.
-  if (!estado._servidorPresente) return;
+function procesarFinServicio(psIdx = 0) {
+  const ps = estado.servidores[psIdx];
+  if (!ps._presente) return;
 
-  estado.tiempoActual = estado.proximoEventoFinServicio; // avanzar reloj al fin del servicio
-  const clienteAtendido = estado.clienteEnServicio;
+  estado.tiempoActual = ps.tiempoFinServicio;
+  const clienteAtendido = ps.clienteEnServicio;
 
-  HookRegistry.ejecutar("onFinServicio", { estado, clienteAtendido });
+  HookRegistry.ejecutar("onFinServicio", { estado, clienteAtendido, psIdx });
 
-  estado.stats.clientesAtendidos++;
-  // Tiempo de espera en cola = inicio de servicio - momento de llegada
   const espera = (clienteAtendido?.tiempoInicioServicio ?? estado.tiempoActual)
-                 - (clienteAtendido?.tiempoLlegada ?? estado.tiempoActual);
+               - (clienteAtendido?.tiempoLlegada       ?? estado.tiempoActual);
   estado.stats.tiempoEsperaTotal += Math.max(0, espera);
 
-  if (estado.cola.length > 0) {
-    // Siguiente cliente de la cola pasa al PS
-    const siguiente = estado.cola.shift();
-    siguiente.tiempoInicioServicio  = estado.tiempoActual;
-    estado.clienteEnServicio        = siguiente;
-    estado.proximoEventoFinServicio = generarTiempoServicio();
-  } else {
-    // No hay nadie esperando: PS libre
-    estado.servidor.estado          = "LIBRE";
-    estado.clienteEnServicio        = null;
-    estado.proximoEventoFinServicio = null;
+  // ── Serie: reenviar cliente a la siguiente etapa ─────────
+  if (estado.topologia === "serie" && psIdx < estado.numServidores - 1) {
+    ps.estado = "LIBRE";
+    ps.clienteEnServicio = null;
+    ps.tiempoFinServicio = null;
+    _acumularOcupacion(ps);
+
+    clienteAtendido.tiempoLlegada        = estado.tiempoActual;
+    clienteAtendido.tiempoInicioServicio = null;
+
+    const nextPS = estado.servidores[psIdx + 1];
+    if (nextPS.estado === "LIBRE") {
+      _iniciarServicio(nextPS, clienteAtendido);
+    } else {
+      const cola = _colaDePS(psIdx + 1);
+      cola.push(clienteAtendido);
+      cola.sort((a, b) => b.prioridad - a.prioridad);
+      HookRegistry.ejecutar("onEncolar", { estado, cliente: clienteAtendido, psIdx: psIdx + 1 });
+    }
+
+    const colaEntrada = _colaDePS(psIdx);
+    if (colaEntrada.length > 0) {
+      _iniciarServicio(ps, colaEntrada.shift());
+    }
+
+    HookRegistry.ejecutar("onFinServicioPost", { estado, clienteAtendido, psIdx });
+    Bus.emitir("fila", {
+      evento: `FIN PS${psIdx + 1} #${clienteAtendido?.id ?? "?"}`,
+      hora:   estado.tiempoActual,
+      estado,
+      meta:   { tipo: "finServicio", espera: Math.max(0, espera), psIdx },
+    });
+    return;
   }
 
-  HookRegistry.ejecutar("onFinServicioPost", { estado, clienteAtendido });
+  // ── Fin normal ───────────────────────────────────────────
+  estado.stats.clientesAtendidos++;
 
-  Bus.emitir("fila", { evento: `FIN SERVICIO #${clienteAtendido?.id ?? "?"}`, hora: estado.tiempoActual, estado });
+  const cola = _colaDePS(psIdx);
+  if (cola.length > 0) {
+    _iniciarServicio(ps, cola.shift());
+  } else {
+    ps.estado = "LIBRE";
+    ps.clienteEnServicio = null;
+    ps.tiempoFinServicio = null;
+    _acumularOcupacion(ps);
+  }
+
+  HookRegistry.ejecutar("onFinServicioPost", { estado, clienteAtendido, psIdx });
+
+  Bus.emitir("fila", {
+    evento: `FIN SERVICIO #${clienteAtendido?.id ?? "?"}`,
+    hora:   estado.tiempoActual,
+    estado,
+    meta:   { tipo: "finServicio", espera: Math.max(0, espera) },
+  });
 }
 
 // ─── LOOP PRINCIPAL ─────────────────────────────────────────
-// Implementa el algoritmo next-event-time (avance por eventos):
-//   1. Encontrar el tiempo del próximo evento (mínimo de todos los programados).
-//   2. Si supera el horizonte → finalizar.
-//   3. Avanzar el reloj a ese instante y procesar el evento.
-//   4. Repetir (con setTimeout para permitir la animación en el navegador).
-//
-// Los "eventos extra" son tiempos registrados en estado._eventosExtra
-// por los modificadores (abandono, descanso, seguridad, prioridades, etc.).
-
 let _timer = null;
 
 function paso() {
@@ -268,42 +333,41 @@ function paso() {
 
   const llegada = estado.proximoEventoLlegada ?? Infinity;
 
-  // El fin de servicio se "congela" mientras el servidor está en descanso:
-  // se trata como Infinity para que el bucle no lo procese.
-  const finServicio = (estado.proximoEventoFinServicio !== null && estado._servidorPresente)
-                      ? estado.proximoEventoFinServicio
-                      : Infinity;
+  // Hallar el PS con el fin de servicio más próximo.
+  // Un PS se "congela" cuando su flag _presente es false (descanso).
+  let minFinServicio = Infinity;
+  let psFinIdx       = -1;
+  for (const ps of estado.servidores) {
+    if (ps.tiempoFinServicio === null || !ps._presente) continue;
+    if (ps.tiempoFinServicio < minFinServicio) {
+      minFinServicio = ps.tiempoFinServicio;
+      psFinIdx       = ps.idx;
+    }
+  }
 
-  // Reunir todos los tiempos de eventos extra y quedarse con el mínimo.
   const tiemposExtra = Object.values(estado._eventosExtra).filter(t => t !== null);
   const proximoExtra = tiemposExtra.length ? Math.min(...tiemposExtra) : Infinity;
 
-  // El próximo evento global es el mínimo entre los tres tipos.
-  const proximo = Math.min(llegada, finServicio, proximoExtra);
+  const proximo = Math.min(llegada, minFinServicio, proximoExtra);
 
-  // Condición de parada: ningún evento pendiente antes del fin de la simulación.
   if (proximo > estado.tiempoTotal) {
     _finalizar();
     return;
   }
 
-  // Despachar el evento más próximo al que le corresponda manejarlo.
-  if (proximoExtra <= llegada && proximoExtra <= finServicio) {
-    // Evento extra: buscar cuál modificador lo registró y ejecutar su hook.
+  if (proximoExtra <= llegada && proximoExtra <= minFinServicio) {
     for (const [nombre, tiempo] of Object.entries(estado._eventosExtra)) {
       if (tiempo === proximoExtra) {
         HookRegistry.ejecutar(`onEvento_${nombre}`, estado);
         break;
       }
     }
-  } else if (llegada <= finServicio) {
+  } else if (llegada < minFinServicio) {
     procesarLlegada();
   } else {
-    procesarFinServicio();
+    procesarFinServicio(psFinIdx);
   }
 
-  // setTimeout permite que el navegador renderice entre pasos,
-  // generando la animación. La velocidad es configurable desde la UI.
   _timer = setTimeout(paso, estado._velocidad ?? 120);
 }
 
@@ -313,123 +377,30 @@ function _finalizar() {
   Bus.emitir("fin", estado);
 }
 
-// ─── VECTOR INICIAL ──────────────────────────────────────────
-// Aplica el vector inicial DESPUÉS de que los modificadores se hayan
-// inicializado, sobrescribiendo los defaults que hayan establecido.
-
-function _aplicarVectorInicial(vi) {
-  const priActivo = !!estado.modificadoresActivos?.prioridades;
-
-  // 1. Hora de inicio
-  if (vi.hora) estado.tiempoActual = vi.hora;
-
-  // 2. Cola inicial
-  if (priActivo) {
-    const nA = vi.prioridades_colaA ?? 0;
-    const nB = vi.prioridades_colaB ?? 0;
-    for (let i = 0; i < nA; i++) {
-      estado.clienteIdCounter++;
-      estado.cola.push({ id: estado.clienteIdCounter, tiempoLlegada: estado.tiempoActual, tiempoInicioServicio: null, prioridad: 1, tipo: "A" });
-    }
-    for (let i = 0; i < nB; i++) {
-      estado.clienteIdCounter++;
-      estado.cola.push({ id: estado.clienteIdCounter, tiempoLlegada: estado.tiempoActual, tiempoInicioServicio: null, prioridad: 0, tipo: "B" });
-    }
-    if (nA + nB > 0) estado.cola.sort((a, b) => b.prioridad - a.prioridad);
-  } else {
-    const nCola = vi.cola ?? 0;
-    for (let i = 0; i < nCola; i++) {
-      estado.clienteIdCounter++;
-      estado.cola.push({ id: estado.clienteIdCounter, tiempoLlegada: estado.tiempoActual, tiempoInicioServicio: null, prioridad: 0 });
-    }
-  }
-
-  // 3. Estado del servidor
-  if (vi.servidor === "OCUPADO") {
-    estado.servidor.estado = "OCUPADO";
-    estado.clienteIdCounter++;
-    estado.clienteEnServicio = {
-      id:                   estado.clienteIdCounter,
-      tiempoLlegada:        estado.tiempoActual,
-      tiempoInicioServicio: estado.tiempoActual,
-      prioridad:            0,
-    };
-  }
-
-  // 4. Próxima llegada
-  if (priActivo && vi.prioridades_proxLlegadaA !== null && vi.prioridades_proxLlegadaA !== undefined) {
-    estado.proximoEventoLlegada = vi.prioridades_proxLlegadaA;
-  } else if (vi.proximaLlegada !== null && vi.proximaLlegada !== undefined) {
-    estado.proximoEventoLlegada = vi.proximaLlegada;
-  } else {
-    estado.proximoEventoLlegada = estado.tiempoActual + estado.tLL;
-  }
-
-  // 5. Fin de servicio (calculado automáticamente si el servidor arranca ocupado)
-  if (vi.servidor === "OCUPADO") {
-    estado.proximoEventoFinServicio = estado.tiempoActual + estado.tS;
-  }
-
-  // 6. Extras de modificadores (sobrescriben lo que iniciar() haya calculado)
-  if (vi.abandono_proxAbandono !== null && vi.abandono_proxAbandono !== undefined)
-    estado._eventosExtra.abandono = vi.abandono_proxAbandono;
-
-  if (vi.seguridad_llegaPS !== null && vi.seguridad_llegaPS !== undefined) {
-    estado._eventosExtra.zs = vi.seguridad_llegaPS;
-    estado.zonaSeguridad    = "OCUPADO";
-  }
-
-  if (vi.descanso_salidaServidor !== null && vi.descanso_salidaServidor !== undefined)
-    estado._eventosExtra.servidor_salida = vi.descanso_salidaServidor;
-
-  if (vi.descanso_regresoServidor !== null && vi.descanso_regresoServidor !== undefined)
-    estado._eventosExtra.servidor_llegada = vi.descanso_regresoServidor;
-
-  if (vi.descanso_presencia === "AUSENTE") {
-    estado._servidorAusente = true;
-    estado.servidor.estado  = "AUSENTE";
-  }
-
-  if (priActivo && vi.prioridades_proxLlegadaB !== null && vi.prioridades_proxLlegadaB !== undefined)
-    estado._eventosExtra.llegada_B = vi.prioridades_proxLlegadaB;
-}
-
 // ─── API PÚBLICA ─────────────────────────────────────────────
-
-// Inicializa y arranca la simulación con los parámetros dados desde la UI.
-// Orden crítico:
-//   1. Crear estado limpio.
-//   2. Inicializar modificadores activos (registran sus hooks).
-//   3. Ejecutar hooks onIniciar (modificadores preparan su estado inicial).
-//   4. Aplicar V(0) (sobreescribe los valores que pusieron los modificadores).
-//   5. Emitir "inicio" (ui.js imprime la fila V(0)).
-//   6. Arrancar el bucle paso().
 function motorIniciar(params) {
   if (_timer) clearTimeout(_timer);
-  HookRegistry.limpiar(); // limpiar hooks de la corrida anterior
+  HookRegistry.limpiar();
 
   estado = crearEstadoInicial(params);
-  estado.corriendo         = true;
-  estado._eventosExtra     = {};
-  estado._velocidad        = params.velocidad ?? 120;
-  estado._servidorPresente = true;
-  estado._servidorAusente  = false;
+  estado.corriendo     = true;
+  estado._eventosExtra = {};
+  estado._velocidad    = params.velocidad ?? 120;
 
-  // Primera llegada también puede ser aleatoria
   const primerIntervalo = sortearTiempo(estado.tLL, estado.randomParams?.tLL);
   estado.proximoEventoLlegada = primerIntervalo;
 
-  // Inicializar cada modificador activo (llaman a HookRegistry.registrar internamente)
-  for (const [nombre, activo] of Object.entries(estado.modificadoresActivos)) {
-    if (activo && window[`modificador_${nombre}`]) {
-      window[`modificador_${nombre}`].iniciar(estado);
+  // Inicializar modificadores per-PS
+  for (const ps of estado.servidores) {
+    for (const [nombre, activo] of Object.entries(ps.modificadoresActivos)) {
+      if (activo && window[`modificador_${nombre}`]) {
+        window[`modificador_${nombre}`].iniciar(estado, ps.idx);
+      }
     }
   }
 
   HookRegistry.ejecutar("onIniciar", estado);
 
-  // Aplicar V(0) DESPUÉS de los hooks onIniciar para sobreescribir
-  // los valores que los modificadores pusieron como estado "vacío".
   if (window.vectorInicial) {
     window.vectorInicial.aplicar(estado, params);
   }
@@ -438,7 +409,6 @@ function motorIniciar(params) {
   paso();
 }
 
-// Detiene la simulación en el paso actual (sin esperar al fin del horizonte).
 function motorDetener() {
   if (_timer) clearTimeout(_timer);
   estado.corriendo = false;
