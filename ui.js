@@ -247,16 +247,20 @@ function _totalCola(est) {
 
 // ─── CELDA GRÁFICA ───────────────────────────────────────────
 // □/■ = puesto de servicio libre/ocupado  ● = cliente en cola
-// Para multi-PS se muestran todos los PS seguidos del total de clientes
-// en espera (suma de todas las colas del sistema).
+//
+// Layouts según topología:
+//   unica / 1PS  : [PS] ●●●
+//   serie        : ●●[PS1] → ●[PS2] → [PS3]   (colas inter-PS visibles)
+//   paralelo     : [PS1]●●  /  [PS2]●  (una fila por PS, apiladas)
+//   unafilavarios: [PS1][PS2][PS3] ●●●  (PS juntos, cola compartida)
 function mkTdGraf(estado) {
   const td = document.createElement("td");
   td.className = "graf-td";
 
   const numPS = estado.servidores?.length ?? 1;
+  const topo  = estado.topologia;
 
-  for (let i = 0; i < numPS; i++) {
-    const ps = estado.servidores ? estado.servidores[i] : estado.servidor;
+  function makeSrvWrap(ps, showLabel) {
     const wrap = document.createElement("span");
     wrap.className = "graf-srv-wrap";
     if (!ps._ausente) {
@@ -267,16 +271,85 @@ function mkTdGraf(estado) {
     const srv = document.createElement("span");
     srv.className = "graf-srv" + (ps.estado === "OCUPADO" ? " busy" : "");
     wrap.appendChild(srv);
-    td.appendChild(wrap);
+    if (showLabel) {
+      const lbl = document.createElement("span");
+      lbl.className = "graf-ps-label";
+      lbl.textContent = `PS${(ps.idx ?? 0) + 1}`;
+      wrap.appendChild(lbl);
+    }
+    return wrap;
   }
 
-  const total = _totalCola(estado);
-  for (let j = 0; j < total; j++) {
-    const cli = document.createElement("span");
-    cli.className = "graf-cli";
-    td.appendChild(cli);
+  function makeClients(n) {
+    const frag = document.createDocumentFragment();
+    for (let j = 0; j < n; j++) {
+      const dot = document.createElement("span");
+      dot.className = "graf-cli";
+      frag.appendChild(dot);
+    }
+    return frag;
   }
 
+  function makeArrow() {
+    const a = document.createElement("span");
+    a.className = "graf-arrow";
+    a.textContent = "→";
+    return a;
+  }
+
+  // ── 1 PS ─────────────────────────────────────────────────────
+  if (numPS === 1 || !topo || topo === "unica") {
+    const ps = estado.servidores ? estado.servidores[0] : estado.servidor;
+    td.appendChild(makeSrvWrap(ps, false));
+    td.appendChild(makeClients(_totalCola(estado)));
+    return td;
+  }
+
+  // ── Serie ────────────────────────────────────────────────────
+  // Layout: ●●[PS1] → ●[PS2] → [PS3]
+  if (topo === "serie") {
+    const row = document.createElement("div");
+    row.className = "graf-serie";
+    for (let i = 0; i < numPS; i++) {
+      if (i > 0) row.appendChild(makeArrow());
+      row.appendChild(makeClients(_colaDeIdx(estado, i).length));
+      row.appendChild(makeSrvWrap(estado.servidores[i], true));
+    }
+    td.appendChild(row);
+    return td;
+  }
+
+  // ── Paralelo ─────────────────────────────────────────────────
+  // Layout: una fila por PS, apiladas verticalmente
+  //   [PS1]●●
+  //   [PS2]●
+  //   [PS3]
+  if (topo === "paralelo") {
+    const col = document.createElement("div");
+    col.className = "graf-paralelo";
+    for (let i = 0; i < numPS; i++) {
+      const lane = document.createElement("div");
+      lane.className = "graf-paralelo-lane";
+      lane.appendChild(makeSrvWrap(estado.servidores[i], true));
+      lane.appendChild(makeClients(_colaDeIdx(estado, i).length));
+      col.appendChild(lane);
+    }
+    td.appendChild(col);
+    return td;
+  }
+
+  // ── Una fila, varios PS ───────────────────────────────────────
+  // Layout: [PS1][PS2][PS3] ●●●
+  const row = document.createElement("div");
+  row.className = "graf-unafilavarios";
+  const psGroup = document.createElement("span");
+  psGroup.className = "graf-ps-group";
+  for (let i = 0; i < numPS; i++) {
+    psGroup.appendChild(makeSrvWrap(estado.servidores[i], true));
+  }
+  row.appendChild(psGroup);
+  row.appendChild(makeClients(_colaDeIdx(estado, 0).length));
+  td.appendChild(row);
   return td;
 }
 

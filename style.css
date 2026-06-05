@@ -902,6 +902,64 @@ button:disabled {
   margin-right: 2px;
 }
 
+/* ── Etiqueta PSn bajo el ícono (multi-PS) ───────────────────── */
+.graf-ps-label {
+  display: block;
+  font-size: 8px;
+  color: #999;
+  text-align: center;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+/* ── Serie: PS en secuencia con flechas ─────────────────────── */
+.graf-serie {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.graf-serie .graf-srv-wrap { margin-right: 0; }
+.graf-serie .graf-cli      { margin-right: 0; }
+
+/* ── Paralelo: una fila por PS, apiladas ─────────────────────── */
+.graf-paralelo {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+  vertical-align: middle;
+}
+.graf-paralelo-lane {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.graf-paralelo-lane .graf-srv-wrap { margin-right: 0; }
+.graf-paralelo-lane .graf-cli      { margin-right: 0; }
+
+/* ── Una fila, varios PS ─────────────────────────────────────── */
+.graf-unafilavarios {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.graf-ps-group {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+}
+.graf-ps-group .graf-srv-wrap { margin-right: 0; }
+
+/* ── Flecha de flujo ─────────────────────────────────────────── */
+.graf-arrow {
+  color: #888;
+  font-size: 11px;
+  line-height: 1;
+  align-self: center;
+  flex-shrink: 0;
+}
+
 /* ─── SELECTOR NÚMERO DE SERVIDORES ──────────────────────────── */
 .server-selector {
   margin-bottom: 16px;
