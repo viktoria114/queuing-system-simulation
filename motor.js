@@ -60,12 +60,17 @@ function crearEstadoInicial(params) {
            ? Array.from({ length: numServidores }, () => [])
            : null,
 
+    _salaEspera:          [],
+    _capacidadSalaEspera: params.capacidadSalaEspera ?? Infinity,
+
     proximoEventoLlegada: null,
     _eventosExtra:        {},
 
     stats: {
       clientesAtendidos:     0,
       clientesAbandonaron:   0,
+      abandonosTotem:        0,
+      abandonosSalaEspera:   0,
       tiempoEsperaTotal:     0,
       tiempoOcupado:         0,
       _servidorOcupadoDesde: null,
@@ -108,6 +113,9 @@ function crearEstadoInicial(params) {
     if (this.topologia === "serie" && psIdx > 0) {
       if (!this.servidores[psIdx]._cola) this.servidores[psIdx]._cola = [];
       return this.servidores[psIdx]._cola;
+    }
+    if (this.topologia === "serie-paralelo" && psIdx > 0) {
+      return this._salaEspera;
     }
     return this.cola;
   };
@@ -169,7 +177,7 @@ function _colaDePS(psIdx) {
 }
 
 function _elegirPS() {
-  if (estado.topologia === "serie") {
+  if (estado.topologia === "serie" || estado.topologia === "serie-paralelo") {
     return estado.servidores[0].estado === "LIBRE" ? estado.servidores[0] : null;
   }
   if (estado.topologia === "paralelo") {
@@ -264,6 +272,54 @@ function procesarFinServicio(psIdx = 0) {
   const espera = (clienteAtendido?.tiempoInicioServicio ?? estado.tiempoActual)
                - (clienteAtendido?.tiempoLlegada       ?? estado.tiempoActual);
   estado.stats.tiempoEsperaTotal += Math.max(0, espera);
+
+  // ── Serie-Paralelo: tótem (PS0) termina → sala de espera ────────
+  if (estado.topologia === "serie-paralelo" && psIdx === 0) {
+    ps.estado = "LIBRE";
+    ps.clienteEnServicio = null;
+    ps.tiempoFinServicio = null;
+    _acumularOcupacion(ps);
+
+    // Si hay consultorio libre, el cliente va directo sin ocupar asiento
+    const psLibre = estado.servidores.slice(1).find(s => s.estado === "LIBRE" && s._presente);
+
+    if (psLibre) {
+      clienteAtendido.tiempoLlegada        = estado.tiempoActual;
+      clienteAtendido.tiempoInicioServicio = null;
+      _iniciarServicio(psLibre, clienteAtendido);
+    } else if (estado._salaEspera.length >= estado._capacidadSalaEspera) {
+      // Sala llena: el cliente abandona
+      estado.stats.abandonosSalaEspera++;
+      estado.stats.clientesAbandonaron++;
+      Bus.emitir("fila", {
+        evento: `ABANDONO SALA #${clienteAtendido?.id ?? "?"}`,
+        hora:   estado.tiempoActual,
+        estado,
+        meta:   { tipo: "abandonoSala" },
+      });
+    } else {
+      // Entrar a la sala de espera
+      clienteAtendido.tiempoLlegada        = estado.tiempoActual;
+      clienteAtendido.tiempoInicioServicio = null;
+      estado._salaEspera.push(clienteAtendido);
+      HookRegistry.ejecutar("onEncolar", { estado, cliente: clienteAtendido, psIdx: 1 });
+    }
+
+    // Atender siguiente en cola del tótem
+    const colaTotem = _colaDePS(0);
+    if (colaTotem.length > 0) {
+      _iniciarServicio(ps, colaTotem.shift());
+    }
+
+    HookRegistry.ejecutar("onFinServicioPost", { estado, clienteAtendido, psIdx });
+    Bus.emitir("fila", {
+      evento: `FIN TÓTEM #${clienteAtendido?.id ?? "?"}`,
+      hora:   estado.tiempoActual,
+      estado,
+      meta:   { tipo: "finServicio", espera: Math.max(0, espera), psIdx },
+    });
+    return;
+  }
 
   // ── Serie: reenviar cliente a la siguiente etapa ─────────
   if (estado.topologia === "serie" && psIdx < estado.numServidores - 1) {

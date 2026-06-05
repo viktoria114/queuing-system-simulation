@@ -59,6 +59,12 @@ window.modificador_abandono = {
         const idx = cola.indexOf(cliente);
         if (idx !== -1) cola.splice(idx, 1);
         e.stats.clientesAbandonaron++;
+        // Contar separado: tótem = PS0, sala = PS1+
+        if (psIdx === 0) {
+          e.stats.abandonosTotem = (e.stats.abandonosTotem ?? 0) + 1;
+        } else {
+          e.stats.abandonosSalaEspera = (e.stats.abandonosSalaEspera ?? 0) + 1;
+        }
         Bus.emitir("fila", {
           evento: `ABANDONO #${cliente.id}`,
           hora:   cliente[limKey],

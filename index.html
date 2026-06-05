@@ -42,7 +42,17 @@
             <img src="images/unafilavariosps.png" alt="Una fila, varios PS" />
             <span>Una fila, varios PS</span>
           </div>
+          <div class="queue-type-card" data-type="serie-paralelo">
+            <img src="images/seriesalaespera.png" alt="Serie con Sala de Espera" onerror="this.style.display='none'" />
+            <span>Serie + Sala de Espera</span>
+          </div>
         </div>
+      </div>
+
+      <!-- ─── CAPACIDAD SALA DE ESPERA (solo serie-paralelo) ──── -->
+      <div id="salaEsperaSection" style="display:none">
+        <h5>Capacidad Sala de Espera (asientos)</h5>
+        <input type="number" id="capacidadSalaEspera" value="10" min="1" />
       </div>
 
       <!-- ─── PESTAÑAS PS (solo cuando >1 servidor) ──────────── -->
