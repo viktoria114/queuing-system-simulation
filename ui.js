@@ -192,10 +192,16 @@ function imprimirEstadisticas(estado) {
 
   const filas = [
     ["Clientes atendidos",   s.clientesAtendidos],
-    ["Clientes abandonaron", s.clientesAbandonaron],
-    ["Espera promedio",      `${promEspera}s`],
-    ["Ocupación del PS",     `${utilizacion}%`],
   ];
+  if (estado.topologia === "serie-paralelo") {
+    filas.push(["↳ Abandonos en fila del tótem",    s.abandonosTotem      ?? 0]);
+    filas.push(["↳ Abandonos en sala de espera",    s.abandonosSalaEspera ?? 0]);
+    filas.push(["Total abandonos",                  s.clientesAbandonaron]);
+  } else {
+    filas.push(["Clientes abandonaron", s.clientesAbandonaron]);
+  }
+  filas.push(["Espera promedio", `${promEspera}s`]);
+  filas.push(["Ocupación del PS", `${utilizacion}%`]);
   if (s.clientesDesviados !== undefined) {
     filas.push(["Clientes desviados", s.clientesDesviados]);
     filas.push(["Procesados / Desviados", `${s.clientesAtendidos} / ${s.clientesDesviados}`]);
@@ -231,14 +237,18 @@ function mkTd(valor, mod) {
 
 // Devuelve la cola que alimenta al PS[i] según la topología.
 function _colaDeIdx(est, i) {
-  if (est.topologia === "paralelo") return est.colas?.[i] ?? [];
-  if (est.topologia === "serie")    return i === 0 ? est.cola : (est.servidores[i]?._cola ?? []);
+  if (est.topologia === "paralelo")       return est.colas?.[i] ?? [];
+  if (est.topologia === "serie")          return i === 0 ? est.cola : (est.servidores[i]?._cola ?? []);
+  if (est.topologia === "serie-paralelo") return i === 0 ? est.cola : (est._salaEspera ?? []);
   // unafilavarios / unica: cola compartida, solo relevante para PS0
   return i === 0 ? est.cola : [];
 }
 
 // Suma de todos los clientes en espera en el sistema (para el gráfico).
 function _totalCola(est) {
+  if (est.topologia === "serie-paralelo") {
+    return (est.cola?.length ?? 0) + (est._salaEspera?.length ?? 0);
+  }
   let total = 0;
   const numPS = est.servidores?.length ?? 1;
   for (let i = 0; i < numPS; i++) total += _colaDeIdx(est, i).length;
@@ -338,6 +348,33 @@ function mkTdGraf(estado) {
     return td;
   }
 
+  // ── Serie con Sala de Espera ─────────────────────────────────
+  // Layout: ●●[Tótem] → [sala:●●] → [C1]
+  //                                  [C2]
+  if (topo === "serie-paralelo") {
+    const row = document.createElement("div");
+    row.className = "graf-serie";
+
+    row.appendChild(makeClients(estado.cola?.length ?? 0));
+    row.appendChild(makeSrvWrap(estado.servidores[0], true));
+    row.appendChild(makeArrow());
+
+    // Sala de espera: círculos de espera
+    row.appendChild(makeClients(estado._salaEspera?.length ?? 0));
+    row.appendChild(makeArrow());
+
+    // Consultorios apilados
+    const colDiv = document.createElement("div");
+    colDiv.style.cssText = "display:inline-flex;flex-direction:column;gap:2px;vertical-align:middle";
+    for (let i = 1; i < numPS; i++) {
+      colDiv.appendChild(makeSrvWrap(estado.servidores[i], true));
+    }
+    row.appendChild(colDiv);
+
+    td.appendChild(row);
+    return td;
+  }
+
   // ── Una fila, varios PS ───────────────────────────────────────
   // Layout: [PS1][PS2][PS3] ●●●
   const row = document.createElement("div");
@@ -367,6 +404,12 @@ function imprimirEncabezadoTabla() {
 
   if (_psCount === 1) {
     tr.append(mkTh("Fin Servicio"), mkTh("Cola"), mkTh("Puesto de Servicio"), mkTh("T. Espera"));
+  } else if (_queueType === "serie-paralelo") {
+    tr.append(mkTh("Tótem"), mkTh("Fin Tótem"), mkTh("Cola Tótem"), mkTh("Sala Espera"));
+    for (let i = 1; i < _psCount; i++) {
+      tr.append(mkTh(`Consul. ${i}`), mkTh(`Fin C${i}`));
+    }
+    tr.append(mkTh("T. Espera"));
   } else {
     const perPS = _queueType === "serie" || _queueType === "paralelo";
     for (let i = 0; i < _psCount; i++) {
@@ -430,6 +473,19 @@ function imprimirFila({ evento, hora, estado, meta }) {
       mkTd(estado.servidor.estado),
       tdEspera,
     );
+  } else if (estado.topologia === "serie-paralelo") {
+    const ps0 = estado.servidores[0];
+    tr.append(
+      mkTd(ps0.estado),
+      mkTd(formatHora(ps0.tiempoFinServicio)),
+      mkTd(estado.cola?.length ?? 0),
+      mkTd(estado._salaEspera?.length ?? 0),
+    );
+    for (let i = 1; i < numPS; i++) {
+      const ps = estado.servidores[i];
+      tr.append(mkTd(ps.estado), mkTd(formatHora(ps.tiempoFinServicio)));
+    }
+    tr.append(tdEspera);
   } else {
     const perPS = estado.topologia === "serie" || estado.topologia === "paralelo";
     for (const ps of estado.servidores) {
@@ -624,6 +680,10 @@ function leerParametros() {
   const velocidad = parseInt(document.getElementById("velocidad")?.value) ?? 120;
   const topologia = _queueType ?? "unica";
 
+  const capacidadSalaEspera = topologia === "serie-paralelo"
+    ? (parseInt(document.getElementById("capacidadSalaEspera")?.value) || 10)
+    : Infinity;
+
   return {
     tLL, tS, tiempoTotal,
     modificadoresActivos, paramsModificadores, randomParams,
@@ -631,6 +691,7 @@ function leerParametros() {
     numServidores: _psCount,
     topologia,
     psParams,
+    capacidadSalaEspera,
   };
 }
 
@@ -858,10 +919,15 @@ function applyQueueTypeConstraints() {
     if (!panel) continue;
     const tllSection = panel.querySelector(".tll-section");
     if (!tllSection) continue;
-    // tLL se bloquea en PS2+ cuando la cola es serie o una-fila-varios-ps
-    const shouldDisable = (i > 0) && (_queueType === "serie" || _queueType === "unafilavarios");
+    // tLL se bloquea en PS2+ cuando la cola es serie, una-fila-varios-ps o serie-paralelo
+    const shouldDisable = (i > 0) &&
+      (_queueType === "serie" || _queueType === "unafilavarios" || _queueType === "serie-paralelo");
     setTllDisabled(tllSection, shouldDisable);
   }
+
+  // Mostrar u ocultar la sección de capacidad de sala de espera
+  const salaSection = document.getElementById("salaEsperaSection");
+  if (salaSection) salaSection.style.display = _queueType === "serie-paralelo" ? "" : "none";
 }
 
 function setTllDisabled(tllSection, disabled) {

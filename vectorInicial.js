@@ -327,8 +327,10 @@ window.vectorInicial = {
       const modsI = params.psParams?.[i]?.modificadoresActivos ?? {};
       const ps    = estado.servidores[i];
 
-      // Cola del PS i (no para unafilavarios, que comparte la cola del PS0)
-      if (topologia !== "unafilavarios") {
+      // Cola del PS i (no para unafilavarios ni para serie-paralelo PS2+, que comparten _salaEspera)
+      const esSalaCompartida = topologia === "unafilavarios" ||
+        (topologia === "serie-paralelo" && i > 1);
+      if (!esSalaCompartida) {
         const colaI = estado.colaPS(i);
         for (let j = 0; j < viI.Qa; j++) {
           estado.clienteIdCounter++;
