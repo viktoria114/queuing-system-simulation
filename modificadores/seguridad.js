@@ -101,6 +101,14 @@ window.modificador_seguridad = {
       const duracion = sortearTiempo(e.tS, e.randomParams?.tS);
       e.proximoEventoFinServicio      = e.tiempoActual + duracion;
 
+      // Si el servidor está de descanso (Seguridad + Descanso activos):
+      // el fin de servicio queda congelado en paso(), pero la duración
+      // sorteada se perdería cuando descanso.js retome con _tiempoRestante ?? tS.
+      // Guardarla explícitamente evita que se descarte en modo aleatorio.
+      if (!e._servidorPresente) {
+        e.clienteEnServicio._tiempoRestante = duracion;
+      }
+
       Bus.emitir("fila", {
         evento: `LLEGA AL PS #${cliente.id}`,
         hora:   e.tiempoActual,
