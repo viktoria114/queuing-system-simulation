@@ -15,7 +15,9 @@
 
 window.modificador_prioridades = {
 
-  iniciar(estado) {
+  iniciar(estado, psIdx = 0) {
+    // prioridades afecta el stream global de llegadas; solo aplica desde PS0
+    if (psIdx !== 0) return;
     const tLL_B = estado.paramsModificadores?.prioridades ?? 45;
 
     // Arrancar el flujo independiente de clientes tipo B

@@ -162,8 +162,20 @@ function imprimirEstadisticas(estado) {
   if (s._servidorOcupadoDesde !== null && s._servidorOcupadoDesde !== undefined) {
     tiempoOcupado += estado.tiempoActual - s._servidorOcupadoDesde;
   }
+  // Para multi-PS: los PS que aún estén ocupados al terminar no fueron cerrados;
+  // se suman aquí. La utilización se normaliza por la cantidad de PS.
+  if (estado.servidores) {
+    for (const ps of estado.servidores) {
+      if (ps._ocupadoDesde !== null) {
+        tiempoOcupado += estado.tiempoActual - ps._ocupadoDesde;
+      }
+    }
+  } else if (s._servidorOcupadoDesde !== null && s._servidorOcupadoDesde !== undefined) {
+    tiempoOcupado += estado.tiempoActual - s._servidorOcupadoDesde;
+  }
+  const numPS = estado.numServidores ?? 1;
   const utilizacion = estado.tiempoTotal > 0
-    ? ((tiempoOcupado / estado.tiempoTotal) * 100).toFixed(1)
+    ? ((tiempoOcupado / (estado.tiempoTotal * numPS)) * 100).toFixed(1)
     : "0.0";
 
   const right = document.getElementById("infoRight");
@@ -215,30 +227,51 @@ function mkTd(valor, mod) {
   return td;
 }
 
+// ─── HELPERS DE COLA ─────────────────────────────────────────
+
+// Devuelve la cola que alimenta al PS[i] según la topología.
+function _colaDeIdx(est, i) {
+  if (est.topologia === "paralelo") return est.colas?.[i] ?? [];
+  if (est.topologia === "serie")    return i === 0 ? est.cola : (est.servidores[i]?._cola ?? []);
+  // unafilavarios / unica: cola compartida, solo relevante para PS0
+  return i === 0 ? est.cola : [];
+}
+
+// Suma de todos los clientes en espera en el sistema (para el gráfico).
+function _totalCola(est) {
+  let total = 0;
+  const numPS = est.servidores?.length ?? 1;
+  for (let i = 0; i < numPS; i++) total += _colaDeIdx(est, i).length;
+  return total;
+}
+
 // ─── CELDA GRÁFICA ───────────────────────────────────────────
-// Muestra el estado del sistema con la simbología habitual:
 // □/■ = puesto de servicio libre/ocupado  ● = cliente en cola
-// La "panzita" (semicírculo sobre el cuadrado) indica que el servidor está presente.
-// Desaparece cuando _servidorAusente es true (descanso activo y servidor fuera).
+// Para multi-PS se muestran todos los PS seguidos del total de clientes
+// en espera (suma de todas las colas del sistema).
 function mkTdGraf(estado) {
   const td = document.createElement("td");
   td.className = "graf-td";
 
-  const wrap = document.createElement("span");
-  wrap.className = "graf-srv-wrap";
+  const numPS = estado.servidores?.length ?? 1;
 
-  if (!estado._servidorAusente) {
-    const belly = document.createElement("span");
-    belly.className = "graf-belly";
-    wrap.appendChild(belly);
+  for (let i = 0; i < numPS; i++) {
+    const ps = estado.servidores ? estado.servidores[i] : estado.servidor;
+    const wrap = document.createElement("span");
+    wrap.className = "graf-srv-wrap";
+    if (!ps._ausente) {
+      const belly = document.createElement("span");
+      belly.className = "graf-belly";
+      wrap.appendChild(belly);
+    }
+    const srv = document.createElement("span");
+    srv.className = "graf-srv" + (ps.estado === "OCUPADO" ? " busy" : "");
+    wrap.appendChild(srv);
+    td.appendChild(wrap);
   }
 
-  const srv = document.createElement("span");
-  srv.className = "graf-srv" + (estado.servidor.estado === "OCUPADO" ? " busy" : "");
-  wrap.appendChild(srv);
-  td.appendChild(wrap);
-
-  for (let i = 0; i < estado.cola.length; i++) {
+  const total = _totalCola(estado);
+  for (let j = 0; j < total; j++) {
     const cli = document.createElement("span");
     cli.className = "graf-cli";
     td.appendChild(cli);
@@ -248,10 +281,8 @@ function mkTdGraf(estado) {
 }
 
 // ─── ENCABEZADO ───────────────────────────────────────────────
-// Construye la fila de encabezados de la tabla de eventos.
-// Las columnas base siempre aparecen; las columnas de modificadores
-// solo se agregan si el modificador está activo.
-// La primera columna extra lleva clase "sep-left" para el separador visual.
+// Para 1 PS: columnas idénticas a la versión original.
+// Para N PS: reemplaza "Fin Servicio" + "Puesto de Servicio" por columnas por PS.
 function imprimirEncabezadoTabla() {
   const thead = document.getElementById("eventHead");
   if (!thead) return;
@@ -259,19 +290,21 @@ function imprimirEncabezadoTabla() {
 
   const tr = document.createElement("tr");
 
-  // Columnas base (siempre presentes)
-  tr.append(
-    mkTh("Evento"),
-    mkTh("Hora"),
-    mkTh("Próx. Llegada"),
-    mkTh("Fin Servicio"),
-    mkTh("Cola"),
-    mkTh("Puesto de Servicio"),
-    mkTh("T. Espera"),
-  );
+  tr.append(mkTh("Evento"), mkTh("Hora"), mkTh("Próx. Llegada"));
 
-  // Columnas extra: la primera recibe "sep-left" para separador visual.
-  // sepPendiente se pone en false después del primer uso.
+  if (_psCount === 1) {
+    tr.append(mkTh("Fin Servicio"), mkTh("Cola"), mkTh("Puesto de Servicio"), mkTh("T. Espera"));
+  } else {
+    const perPS = _queueType === "serie" || _queueType === "paralelo";
+    for (let i = 0; i < _psCount; i++) {
+      tr.append(mkTh(`PS${i + 1}`), mkTh(`Fin PS${i + 1}`));
+      if (perPS) tr.append(mkTh(`Cola PS${i + 1}`));
+    }
+    // unafilavarios: una sola cola compartida al final
+    if (!perPS) tr.append(mkTh("Cola"));
+    tr.append(mkTh("T. Espera"));
+  }
+
   let sepPendiente = _hayExtras();
   const thMod = (label, mod) => {
     const th = mkTh(label, mod);
@@ -313,11 +346,26 @@ function imprimirFila({ evento, hora, estado, meta }) {
     mkTd(evento),
     mkTd(formatHora(hora)),
     mkTd(formatHora(estado.proximoEventoLlegada)),
-    mkTd(formatHora(estado.proximoEventoFinServicio)),
-    mkTd(estado.cola.length),
-    mkTd(estado.servidor.estado),
-    tdEspera,
   );
+
+  const numPS = estado.servidores?.length ?? 1;
+  if (numPS === 1) {
+    // Backward compat: columnas originales para 1 PS
+    tr.append(
+      mkTd(formatHora(estado.proximoEventoFinServicio)),
+      mkTd(_totalCola(estado)),
+      mkTd(estado.servidor.estado),
+      tdEspera,
+    );
+  } else {
+    const perPS = estado.topologia === "serie" || estado.topologia === "paralelo";
+    for (const ps of estado.servidores) {
+      tr.append(mkTd(ps.estado), mkTd(formatHora(ps.tiempoFinServicio)));
+      if (perPS) tr.append(mkTd(_colaDeIdx(estado, ps.idx).length));
+    }
+    if (!perPS) tr.append(mkTd(_totalCola(estado)));
+    tr.append(tdEspera);
+  }
 
   if (_hayExtras()) {
     // La primera celda extra recibe "sep-left" igual que en el encabezado.
@@ -420,14 +468,13 @@ function validarRangos(randomParams) {
 // que se pasa a motorIniciar(). Retorna null si hay errores de validación.
 function leerParametros() {
 
-  // Leer tLL (fijo o aleatorio)
+  // tLL: llegada única al sistema, siempre desde PS0
   const cfgLL = leerParamTiempo("tLL", "tiempoLlegada");
-  // Para el header se usa el valor representativo (promedio en modo aleatorio)
   const tLL   = cfgLL.modo === "fijo" ? cfgLL.valor : (cfgLL.min + cfgLL.max) / 2;
 
-  // Leer tS (fijo o aleatorio)
-  const cfgS = leerParamTiempo("tS", "tiempoServicio");
-  const tS   = cfgS.modo === "fijo" ? cfgS.valor : (cfgS.min + cfgS.max) / 2;
+  // tS de PS0 — valor representativo para el header y backward compat
+  const cfgS0 = leerParamTiempo("tS", "tiempoServicio");
+  const tS    = cfgS0.modo === "fijo" ? cfgS0.valor : (cfgS0.min + cfgS0.max) / 2;
 
   const tiempoTotal = parseFloat(document.getElementById("tiempoSimulacion").value);
 
@@ -436,62 +483,82 @@ function leerParametros() {
     return null;
   }
 
-  const modificadoresActivos = {};
-  const paramsModificadores  = {};
+  // Validar tLL antes de continuar
+  const erroresLL = validarRangos({ tLL: cfgLL.modo === "aleatorio" ? cfgLL : null });
+  if (erroresLL.length) { erroresLL.forEach(e => logLinea(e)); return null; }
 
-  // Leer estado y parámetro numérico de cada modificador
-  document.querySelectorAll(".modificador-check").forEach(cb => {
-    const nombre = cb.dataset.mod;
-    modificadoresActivos[nombre] = cb.checked;
-    if (cb.checked) {
-      const input = document.getElementById(`param_${nombre}`);
-      paramsModificadores[nombre] = parseFloat(input?.value) || 0;
+  // ── Parámetros por PS: tS + modificadores + distribuciones ──
+  const psParams = [];
+  for (let i = 0; i < _psCount; i++) {
+    const s     = i === 0 ? "" : `_${i}`;
+    const panel = document.getElementById(`psPanel_${i}`);
+
+    const cfgSi = leerParamTiempo(`tS${s}`, `tiempoServicio${s}`);
+    const tSi   = cfgSi.modo === "fijo" ? cfgSi.valor : (cfgSi.min + cfgSi.max) / 2;
+
+    const modsI   = {};
+    const paramsI = {};
+    const randI   = { tS: cfgSi.modo === "aleatorio" ? cfgSi : null };
+
+    panel?.querySelectorAll(".modificador-check").forEach(cb => {
+      const nombre = cb.dataset.mod;
+      modsI[nombre] = cb.checked;
+      if (!cb.checked) return;
+
+      const paramInput = document.getElementById(`param_${nombre}${s}`);
+      paramsI[nombre] = parseFloat(paramInput?.value) || 0;
+
       if (nombre === "descanso") {
-        const inputT = document.getElementById("param_descanso_trabajo");
-        paramsModificadores["descanso_trabajo"] = parseFloat(inputT?.value) || 30;
+        const inputT = document.getElementById(`param_descanso_trabajo${s}`);
+        paramsI["descanso_trabajo"] = parseFloat(inputT?.value) || 30;
+        const cfgD = leerParamTiempo(`deltaD${s}`, `param_descanso${s}`);
+        const cfgT = leerParamTiempo(`deltaT${s}`, `param_descanso_trabajo${s}`);
+        randI.deltaD = cfgD.modo === "aleatorio" ? cfgD : null;
+        randI.deltaT = cfgT.modo === "aleatorio" ? cfgT : null;
+        if (cfgD.modo === "aleatorio") paramsI.descanso         = (cfgD.min + cfgD.max) / 2;
+        if (cfgT.modo === "aleatorio") paramsI.descanso_trabajo = (cfgT.min + cfgT.max) / 2;
       }
-    }
-  });
+      if (nombre === "abandono") {
+        const cfgA = leerParamTiempo(`abandono${s}`, `param_abandono${s}`);
+        randI.abandono = cfgA.modo === "aleatorio" ? cfgA : null;
+        if (cfgA.modo === "aleatorio") paramsI.abandono = (cfgA.min + cfgA.max) / 2;
+      }
+      if (nombre === "seguridad") {
+        const cfgSeg = leerParamTiempo(`seguridad${s}`, `param_seguridad${s}`);
+        randI.seguridad = cfgSeg.modo === "aleatorio" ? cfgSeg : null;
+        if (cfgSeg.modo === "aleatorio") paramsI.seguridad = (cfgSeg.min + cfgSeg.max) / 2;
+      }
+    });
 
-  // Construir randomParams para cada clave de tiempo configurable.
-  // null significa "modo fijo" para esa clave.
-  const randomParams = {};
-
-  randomParams.tLL = cfgLL.modo === "aleatorio" ? cfgLL : null;
-  randomParams.tS  = cfgS.modo  === "aleatorio" ? cfgS  : null;
-
-  if (modificadoresActivos.descanso) {
-    const cfgD = leerParamTiempo("deltaD", "param_descanso");
-    const cfgT = leerParamTiempo("deltaT", "param_descanso_trabajo");
-    randomParams.deltaD = cfgD.modo === "aleatorio" ? cfgD : null;
-    randomParams.deltaT = cfgT.modo === "aleatorio" ? cfgT : null;
-    // Actualizar paramsModificadores con valor representativo para el header
-    if (cfgD.modo === "aleatorio") paramsModificadores.descanso = (cfgD.min + cfgD.max) / 2;
-    if (cfgT.modo === "aleatorio") paramsModificadores.descanso_trabajo = (cfgT.min + cfgT.max) / 2;
+    psParams.push({ tS: tSi, randomParams: randI,
+                    modificadoresActivos: modsI, paramsModificadores: paramsI });
   }
 
-  if (modificadoresActivos.abandono) {
-    const cfgA = leerParamTiempo("abandono", "param_abandono");
-    randomParams.abandono = cfgA.modo === "aleatorio" ? cfgA : null;
-    if (cfgA.modo === "aleatorio") paramsModificadores.abandono = (cfgA.min + cfgA.max) / 2;
+  // Validar rangos por PS
+  for (let i = 0; i < _psCount; i++) {
+    const errs = validarRangos(psParams[i].randomParams);
+    if (errs.length) { errs.forEach(e => logLinea(`PS${i + 1}: ${e}`)); return null; }
   }
 
-  if (modificadoresActivos.seguridad) {
-    const cfgSeg = leerParamTiempo("seguridad", "param_seguridad");
-    randomParams.seguridad = cfgSeg.modo === "aleatorio" ? cfgSeg : null;
-    if (cfgSeg.modo === "aleatorio") paramsModificadores.seguridad = (cfgSeg.min + cfgSeg.max) / 2;
-  }
-
-  // Validar que todos los rangos aleatorios sean coherentes
-  const errores = validarRangos(randomParams);
-  if (errores.length) {
-    errores.forEach(e => logLinea(e));
-    return null;
-  }
+  // Backward compat: globales = PS0
+  const modificadoresActivos = psParams[0]?.modificadoresActivos ?? {};
+  const paramsModificadores  = psParams[0]?.paramsModificadores  ?? {};
+  const randomParams = {
+    tLL: cfgLL.modo === "aleatorio" ? cfgLL : null,
+    ...(psParams[0]?.randomParams ?? {}),
+  };
 
   const velocidad = parseInt(document.getElementById("velocidad")?.value) ?? 120;
+  const topologia = _queueType ?? "unica";
 
-  return { tLL, tS, tiempoTotal, modificadoresActivos, paramsModificadores, randomParams, velocidad };
+  return {
+    tLL, tS, tiempoTotal,
+    modificadoresActivos, paramsModificadores, randomParams,
+    velocidad,
+    numServidores: _psCount,
+    topologia,
+    psParams,
+  };
 }
 
 // ─── INICIAR / DETENER ───────────────────────────────────────
