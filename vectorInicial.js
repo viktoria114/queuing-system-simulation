@@ -201,10 +201,10 @@ window.vectorInicial = {
         const pacienciaBase = estado.paramsModificadores?.abandono ?? 10;
         const paciencia     = sortearTiempo(pacienciaBase, estado.randomParams?.abandono);
         // paciencia - Te = tiempo restante de paciencia (Te=0 → paciencia completa)
-        cliente.tiempoLimite = Math.max(0.5, paciencia - vi.Te);
+        cliente["tiempoLimite_ps0"] = Math.max(0.5, paciencia - vi.Te);
       }
-      const minLimite = estado.cola.reduce((m, c) => Math.min(m, c.tiempoLimite ?? Infinity), Infinity);
-      estado._eventosExtra.abandono = isFinite(minLimite) ? minLimite : null;
+      const minLimite = estado.cola.reduce((m, c) => Math.min(m, c["tiempoLimite_ps0"] ?? Infinity), Infinity);
+      estado._eventosExtra.abandono_ps0 = isFinite(minLimite) ? minLimite : null;
     }
 
     // 3. Cliente en PS
@@ -237,16 +237,16 @@ window.vectorInicial = {
           estado.randomParams?.deltaD
         );
         const restDescanso = Math.max(0.5, dD - vi.Ttd);
-        estado._eventosExtra.servidor_salida  = null;
-        estado._eventosExtra.servidor_llegada = restDescanso;
+        estado._eventosExtra.servidor_salida_ps0  = null;
+        estado._eventosExtra.servidor_llegada_ps0 = restDescanso;
         if (vi.PS === "OCUPADO" && estado.clienteEnServicio) {
           estado.clienteEnServicio._tiempoRestante = estado.proximoEventoFinServicio;
         }
       } else {
-        if (estado._eventosExtra.servidor_salida != null) {
-          estado._eventosExtra.servidor_salida = Math.max(
+        if (estado._eventosExtra.servidor_salida_ps0 != null) {
+          estado._eventosExtra.servidor_salida_ps0 = Math.max(
             0.5,
-            estado._eventosExtra.servidor_salida - vi.Ttd
+            estado._eventosExtra.servidor_salida_ps0 - vi.Ttd
           );
         }
       }

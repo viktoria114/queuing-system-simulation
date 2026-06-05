@@ -92,10 +92,11 @@ window.modificador_seguridad = {
       if (psIdx === 0) { e.zonaSeguridad = "LIBRE"; e.clienteEnZona = null; }
 
       const psObj = e.servidores[psIdx];
+      const duracion = sortearTiempo(psObj.tS, psObj.randomParams?.tS);
       cliente.tiempoInicioServicio = e.tiempoActual;
       psObj.clienteEnServicio      = cliente;
       psObj.estado                 = "OCUPADO";
-      psObj.tiempoFinServicio      = e.tiempoActual + sortearTiempo(psObj.tS, psObj.randomParams?.tS);
+      psObj.tiempoFinServicio      = e.tiempoActual + duracion;
       psObj._ocupadoDesde          = e.tiempoActual;
       if (psIdx === 0) e.stats._servidorOcupadoDesde = e.tiempoActual;
 
@@ -103,8 +104,8 @@ window.modificador_seguridad = {
       // el fin de servicio queda congelado en paso(), pero la duración
       // sorteada se perdería cuando descanso.js retome con _tiempoRestante ?? tS.
       // Guardarla explícitamente evita que se descarte en modo aleatorio.
-      if (!e._servidorPresente) {
-        e.clienteEnServicio._tiempoRestante = duracion;
+      if (!ps._presente) {
+        psObj.clienteEnServicio._tiempoRestante = duracion;
       }
 
       Bus.emitir("fila", {

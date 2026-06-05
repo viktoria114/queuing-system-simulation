@@ -54,16 +54,19 @@ window.modificador_prioridades = {
       const continuar = HookRegistry.ejecutar("onLlegada", { estado, cliente });
 
       if (continuar !== false) {
-        if (estado.servidor.estado === "LIBRE") {
-          estado.servidor.estado          = "OCUPADO";
-          cliente.tiempoInicioServicio    = estado.tiempoActual;
-          estado.clienteEnServicio        = cliente;
-          const duracion = sortearTiempo(estado.tS, estado.randomParams?.tS);
-          estado.proximoEventoFinServicio = estado.tiempoActual + duracion;
+        const ps = estado.servidores[0];
+        if (ps.estado === "LIBRE") {
+          ps.estado                          = "OCUPADO";
+          cliente.tiempoInicioServicio       = estado.tiempoActual;
+          ps.clienteEnServicio               = cliente;
+          const duracion = sortearTiempo(ps.tS, ps.randomParams?.tS);
+          ps.tiempoFinServicio               = estado.tiempoActual + duracion;
+          ps._ocupadoDesde                   = estado.tiempoActual;
           estado.stats._servidorOcupadoDesde = estado.tiempoActual;
         } else {
           estado.cola.push(cliente);
           estado.cola.sort((a, b) => b.prioridad - a.prioridad);
+          HookRegistry.ejecutar("onEncolar", { estado, cliente, psIdx: 0 });
         }
       }
 

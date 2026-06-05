@@ -69,8 +69,8 @@ function _hayExtras() {
 // Si ninguno tiene tiempoLimite definido, retorna null.
 function proximoAbandono(estado) {
   const limites = estado.cola
-    .filter(c => c.tiempoLimite !== undefined)
-    .map(c => c.tiempoLimite);
+    .filter(c => c["tiempoLimite_ps0"] !== undefined)
+    .map(c => c["tiempoLimite_ps0"]);
   return limites.length ? Math.min(...limites) : null;
 }
 
